@@ -79,7 +79,7 @@ Note the laguage setting does NOT translate the songs or albums that Volumio giv
 
 ###1. Download and rename the sketch folder
 
-Download the zip from GitHub and extract it. GitHub will produce a folder called "Volumio_Remote_CYD-master". Remove the "-master" from the folder/directory name.
+Download the zip from GitHub and extract it. GitHub will produce a folder called "VolumioRemoteCYD-master". Remove the "-master" from the folder/directory name.
 
 ###2. Select the correct board and partition scheme
 

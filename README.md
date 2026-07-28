@@ -77,19 +77,19 @@ Note the laguage setting does NOT translate the songs or albums that Volumio giv
 
 ## Setup
 
-###1. Download and rename the sketch folder
+### 1. Download and rename the sketch folder
 
 Download the zip from GitHub and extract it. GitHub will produce a folder called "VolumioRemoteCYD-master". Remove the "-master" from the folder/directory name.
 
-###2. Select the correct board and partition scheme
+### 2. Select the correct board and partition scheme
 
 See board settings above.
 
-###3. Flash the sketch to the CYD
+### 3. Flash the sketch to the CYD
 
 This must be done first so the data folder contents will then upload properly.
 
-###4. Upload the LittleFS data folder contents
+### 4. Upload the LittleFS data folder contents
 
 Graphics and fonts are contained in the data folder. Use the following to assist with uploading the data folder contents.
 

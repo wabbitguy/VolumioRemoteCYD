@@ -79,7 +79,7 @@ Note the laguage setting does NOT translate the songs or albums that Volumio giv
 
 ### 1. Download and rename the sketch folder
 
-Download the zip from GitHub and extract it. GitHub will produce a folder called "VolumioRemoteCYD-master". Remove the "-master" from the folder/directory name.
+Download the zip from GitHub and extract it. GitHub will produce a folder called "VolumioRemoteCYD-master" or "VolumioRemoteCYD-main". Remove the "-master" or "-main" from the folder/directory name. This must be done before the sketch is loaded into the Arduino 2.3.x IDE.
 
 ### 2. Select the correct board and partition scheme
 

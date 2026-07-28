@@ -138,4 +138,4 @@ Select your screen saver and timeout for it to activate.
 Should the need ever arise to calibrate the touch screen, it can be directly from the Preferences. All it does is require you to touch the screen according to the corner marker it shows. Unless something changes, it's a one and done.
 
 ---
-#####VolumioRemote ©2026 Wabbit Wanch Design - Open Source under the GPL-3.0 license
+##### VolumioRemote ©2026 Wabbit Wanch Design - Open Source under the GPL-3.0 license

@@ -3,7 +3,7 @@
 #include <FS.h>
 #include "LittleFS.h"
 
-#define VERSION "v1.6"  // shown on the settings web page footer - bump by hand each release
+#define VERSION "v1.8"  // shown on the settings web page footer - bump by hand each release
 
 // ---------------------------------------------------------------------
 // Fonts (LittleFS /data folder)
@@ -51,20 +51,24 @@
 // unchanged from before this: TEXT_X above, BTN_X0-5/VOL_NUMBER_X in the
 // .ino.) Top to bottom on screen:
 //   ART_Y (above)     - album art top edge
-//   Y_ARTIST          - artist line. The track/song-name line always
-//                        renders one line below it (see TRACK_Y in the
-//                        .ino) - no separate Y needed for that one.
-//   Y_SOURCE          - "Source: ..." line (album line sits one line
-//                        above it - see albumY in drawTextBlock())
-//   Y_PROGRESS_BAR    - progress/volume-slider bar
-//   Y_VOL_NUMBER      - "Vol NN" text
+//   Y_ARTIST          - top of the text block (artist/track/album lines).
+//                        Everything from here down to Y_PROGRESS_BAR is
+//                        laid out by drawTextBlock() in the .ino - real
+//                        per-line font heights measured, then whatever
+//                        space is left is split evenly between whichever
+//                        lines are actually active.
+//   Y_PROGRESS_BAR    - progress/volume-slider bar. Doubles as the hard
+//                        floor the text block above lays out against.
+//   Y_VOL_NUMBER      - "Vol NN" text, and now "Source: ..." too (see
+//                        SOURCE_MAXW in the .ino) - moved here off the text
+//                        block above to free up a whole line's worth of
+//                        room in that tight space.
 //   Y_BUTTONS_BOTTOM  - bottom edge of the button icon row
 // ---------------------------------------------------------------------
 #define ART_SIZE  130                       // album art render size (square, px)
 #define ART_X     55                        // (SCREEN_W - ART_SIZE) / 2, centered
 #define ART_Y              34                        // leaves room above for the header line - also "Artwork TOP"
-#define Y_ARTIST          170
-#define Y_SOURCE          228
+#define Y_ARTIST          166  // 2px below the album art's bottom edge (ART_Y + ART_SIZE = 164)
 #define Y_PROGRESS_BAR    247  // bar is 8px tall now (PROGRESS_H, .ino) - bottom edge still lands at 255, same spot as before
 #define Y_VOL_NUMBER      258
 #define Y_BUTTONS_BOTTOM  318

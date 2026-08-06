@@ -41,6 +41,13 @@ Touch the lined icon opposite corner of the wifi display. Select from any web ra
 <img width="221" height="480" alt="Source" src="https://github.com/user-attachments/assets/8b606791-b803-46b0-8188-4b160c0fa1a8" />
 
 
+## USB Player
+
+The USB play section mirrors the way Volumio works in a web browser. If you press the > beside a folder it will play all the items in that folder. Selecting a song inside a folder will play all the songs in that folder (and any folders within that list of songs same as Volumio).
+
+<img width="480" height="630" alt="USB_Player" src="https://github.com/user-attachments/assets/352e1f77-e8c5-4623-bbd0-141e592aa20b" />
+
+
 ## Board settings (Arduino IDE)
 
 - Board: **ESP32 Dev Module**

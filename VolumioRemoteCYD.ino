@@ -842,7 +842,7 @@ static void openUsbFolderList() {
 // (strUsbFolderEmpty) rather than reusing the web-radio "no favorites"
 // message, which was misleading here.
 static void browseUsbCurrentLevel() {
-  displayShowStatus(strStationsLoading, true);
+  displayShowStatus(strUsbLoading, true);
   stationCount = volumioBrowseUsb(usbStackUri[usbStackDepth], stationList, MAX_STATIONS);
   slCurrentFolderName = usbStackName[usbStackDepth];
 

@@ -144,7 +144,7 @@ static void drawWrapped(const String &msg, int x, int y, int w, int font, uint16
 static void drawTruncated(const String &msg, int x, int y, int maxWidth, int font, uint16_t color, uint8_t datum);  // single line, "..." if it overflows maxWidth
 static int measuredTextWidth(const String &msg, int font);                                                           // width in px if drawn at `font`, without drawing it
 static int measuredFontHeight(int font);                                                                             // rendered line height of `font`, without drawing anything
-static void displayShowStatus(const String &msg);                                                                   // boot/connection status message (reuses art+text area)
+static void displayShowStatus(const String &msg, bool fullClear = false);                                           // boot/connection status message (reuses art+text area); fullClear=true wipes the whole screen instead (needed when overlaid on the full-height station-list screen)
 static void drawHeader(const VolumioState &state);                                                                  // artist line, top of screen
 static void drawTextBlock(const VolumioState &state);                                                               // track/album/source lines below the art
 static void displayShowTrack(const VolumioState &state, bool artChanged);                                           // redraws header/text/art, but only what actually changed
@@ -161,12 +161,15 @@ static void closeStationList();
 static void drawStationList();
 static void stationListTouch(bool touched, uint16_t tx, uint16_t ty);
 static void openFavoritesList();               // webradio Favorite Radios - entry point when no USB is mounted, or chosen from the chooser
-static void openUsbFolderList();                // redraws the already-fetched usbFolders[] - no network call
-static void openUsbSongList(const WebRadioStation &folder);  // fetches and shows one USB folder's songs
+static void openUsbFolderList();                // enters USB browsing at the drive root
+static void browseUsbCurrentLevel();            // (re)fetches and shows whatever USB folder/level usbStackDepth currently points at
+static void usbBrowseGoBack();                  // pops one level of the USB nav stack (or returns to the chooser at the root)
+static void playUsbSongAt(int idx);             // plays the song at row idx, queuing the other songs at this same level
 static int slRowCount();                        // how many rows the current mode has
 static String slRowName(int idx);               // row idx's display name in the current mode
 static void slGoBack();                         // header "< Back" tap - no-op at a true top level
-static void slRowTapped(int idx);               // row tap - meaning depends on slMode
+static void slRowTapped(int idx);               // row (text area) tap - meaning depends on slMode
+static void slRowPlayTapped(int idx);           // row's Play icon tap - always plays immediately, never navigates
 
 static bool inRect(int tx, int ty, ButtonRect r);  // hit-test a touch point against a padded button rect
 static void touchPoll();                           // reads touch, dispatches slider drag or button press/release
@@ -209,12 +212,37 @@ static const int SL_ROW_H = (SCREEN_H - SL_HEADER_H - SL_FOOTER_H) / SL_VISIBLE_
 static const int SL_LIST_Y0 = SL_HEADER_H;
 static const int SL_FOOTER_Y = SCREEN_H - SL_FOOTER_H;
 
-enum StationListMode { SL_MODE_FAVORITES, SL_MODE_CHOOSER, SL_MODE_USB_FOLDERS, SL_MODE_USB_SONGS };
+// Per-row Play icon (Favorites/USB browsing only - not the chooser, whose
+// 2 rows are navigation, not playable content). Mirrors Volumio's own web
+// UI: tapping the row itself keeps its existing meaning (open a folder,
+// play a song), tapping this icon always plays immediately - for a folder,
+// that means everything nested inside it, without having to open it first.
+// Leading position (first item on the row, left of the title) to match
+// Volumio's own layout.
+static const int SL_PLAY_ICON_SRC = 32;   // native size of stationPlayIcon.jpg in data/
+static const int SL_PLAY_ICON_SIZE = 24;  // on-screen size, vertically centered in the 36px row
+static const int SL_PLAY_ICON_X = TEXT_X;                              // left-aligned - first item on the row
+static const int SL_ROW_TEXT_X = SL_PLAY_ICON_X + SL_PLAY_ICON_SIZE + 8;  // title starts after the icon + a gap
+static const int SL_ROW_TEXT_MAXW = SCREEN_W - SL_ROW_TEXT_X - TEXT_X;    // same right margin as before, just shifted over
+
+// SL_MODE_USB_BROWSE covers every USB level (top-level folders, and any
+// folder nested underneath them) - replaces the old fixed two-level
+// SL_MODE_USB_FOLDERS/SL_MODE_USB_SONGS pair, which only handled drives laid
+// out as "USB/<folder>/<song>.mp3" and silently found nothing on the far
+// more common "USB/<artist>/<album>/<song>.mp3" layout.
+enum StationListMode { SL_MODE_FAVORITES, SL_MODE_CHOOSER, SL_MODE_USB_BROWSE };
 static StationListMode slMode = SL_MODE_FAVORITES;
 static bool slCameFromChooser = false;  // true only if favorites was reached via the chooser (vs. auto-skip when no USB is mounted) - controls whether a back arrow shows
-static WebRadioStation usbFolders[MAX_USB_FOLDERS];
-static int usbFolderCount = 0;
 static String slCurrentFolderName;  // for the "< A" / "< B" back-button label while viewing a folder's songs
+
+// USB navigation stack - usbStackUri[0..usbStackDepth] is the path of URIs
+// from the drive root down to whatever level is currently on screen, so
+// "< Back" can pop out one folder at a time no matter how deep the drive's
+// actual folder structure goes (unlike the old 2-level-only model).
+static const int USB_STACK_MAX = 8;  // e.g. USB/Artist/Album/Disc/... - plenty for any real music library layout
+static String usbStackUri[USB_STACK_MAX];
+static String usbStackName[USB_STACK_MAX];
+static int usbStackDepth = 0;
 
 // ---------------------------------------------------------------------
 // Main
@@ -353,7 +381,17 @@ static void displayInit() {
   drawAllButtonIcons();
 }
 
-static void displayShowStatus(const String &msg) {
+static void displayShowStatus(const String &msg, bool fullClear) {
+  if (fullClear) {
+    // Used when this status message is shown on top of the station-list
+    // overlay (favorites/USB browsing), which paints all the way down to
+    // SL_FOOTER_Y near the bottom of the screen - the partial clear below
+    // only wipes the main-screen's art/text area and leaves the tail end
+    // of that taller screen (e.g. the last folder row) on screen underneath.
+    tft.fillScreen(TFT_BLACK);
+    drawWrapped(msg, TEXT_X, ART_Y, SCREEN_W - 2 * TEXT_X, 2, TFT_WHITE);
+    return;
+  }
   int areaH = Y_ARTIST + TEXT_BLOCK_H;
   tft.fillRect(HEADER_CLEAR_X0, 0, HEADER_TEXT_MAXW, ART_Y, TFT_BLACK);
   tft.fillRect(0, ART_Y, SCREEN_W, areaH - ART_Y, TFT_BLACK);
@@ -729,11 +767,16 @@ static void drawTruncated(const String &msg, int x, int y, int maxWidth, int fon
 
 static void openStationList() {
   pressedButtonIndex = -1;
-  displayShowStatus(strStationsLoading);
+  displayShowStatus(strStationsLoading, true);
 
-  usbFolderCount = volumioListUsbFolders(usbFolders, MAX_USB_FOLDERS);
+  // Cheap presence check only (one browse call at the drive root) - the
+  // actual folder listing is deferred until the user picks "USB Music" in
+  // the chooser below, so this doesn't pay for a browse fetch that might
+  // not even be used (e.g. user picks Web Radio Favorites instead).
+  String usbRootUri;
+  bool hasUsb = volumioGetUsbRootUri(usbRootUri);
 
-  if (usbFolderCount > 0) {
+  if (hasUsb) {
     slMode = SL_MODE_CHOOSER;
     stationScrollOffset = 0;
     slWasTouched = true;  // finger is still down from the tap that opened this screen - don't let it register as a row/close tap too
@@ -756,11 +799,11 @@ static void closeStationList() {
 // just factored out so both openStationList() (no USB) and the chooser (USB
 // present, "Web Radio Favorites" tapped) can reach it.
 static void openFavoritesList() {
-  displayShowStatus(strStationsLoading);
+  displayShowStatus(strStationsLoading, true);
   stationCount = volumioGetFavouriteWebRadios(stationList, MAX_STATIONS);
 
   if (stationCount <= 0) {
-    displayShowStatus(strNoStations);
+    displayShowStatus(strNoStations, true);
     delay(1200);
     redrawMainScreen();
     return;
@@ -773,34 +816,78 @@ static void openFavoritesList() {
   drawStationList();
 }
 
+// Entry point from the chooser - starts a fresh USB browse session at the
+// drive root (depth 0) and fetches its first level.
 static void openUsbFolderList() {
-  slMode = SL_MODE_USB_FOLDERS;
+  usbStackDepth = 0;
+  String rootUri;
+  if (!volumioGetUsbRootUri(rootUri)) {
+    // Drive was unplugged between the chooser's presence check and this tap -
+    // bail back out to the chooser rather than showing a broken empty list.
+    slMode = SL_MODE_CHOOSER;
+    stationScrollOffset = 0;
+    drawStationList();
+    return;
+  }
+  usbStackUri[0] = rootUri;
+  usbStackName[0] = strUsbMusicTitle;
+  browseUsbCurrentLevel();
+}
+
+// Fetches and shows whatever USB level usbStackDepth currently points at -
+// called both when drilling into a folder and when backing out of one.
+// Falls back a level (or to the chooser, at the root) if that level turns
+// out to have nothing playable in it directly - same spirit as
+// openFavoritesList()'s empty-result handling, but with its own wording
+// (strUsbFolderEmpty) rather than reusing the web-radio "no favorites"
+// message, which was misleading here.
+static void browseUsbCurrentLevel() {
+  displayShowStatus(strStationsLoading, true);
+  stationCount = volumioBrowseUsb(usbStackUri[usbStackDepth], stationList, MAX_STATIONS);
+  slCurrentFolderName = usbStackName[usbStackDepth];
+
+  if (stationCount <= 0) {
+    displayShowStatus(strUsbFolderEmpty, true);
+    delay(1200);
+    usbBrowseGoBack();
+    return;
+  }
+
+  slMode = SL_MODE_USB_BROWSE;
   stationScrollOffset = 0;
   slWasTouched = true;
   stationListActive = true;
   drawStationList();
 }
 
-// Fetches and shows the songs inside one USB folder. Falls back to the
-// folder list (rather than closing entirely) if the folder turns out to be
-// empty - same spirit as openFavoritesList()'s empty-result handling.
-static void openUsbSongList(const WebRadioStation &folder) {
-  displayShowStatus(strStationsLoading);
-  stationCount = volumioListUsbSongs(folder.uri, stationList, MAX_STATIONS);
-  slCurrentFolderName = folder.name;
-
-  if (stationCount <= 0) {
-    displayShowStatus(strNoStations);
-    delay(1200);
-    openUsbFolderList();
-    return;
+static void usbBrowseGoBack() {
+  if (usbStackDepth > 0) {
+    usbStackDepth--;
+    browseUsbCurrentLevel();
+  } else {
+    slMode = SL_MODE_CHOOSER;
+    stationScrollOffset = 0;
+    drawStationList();
   }
+}
 
-  slMode = SL_MODE_USB_SONGS;
-  stationScrollOffset = 0;
-  slWasTouched = true;
-  stationListActive = true;
-  drawStationList();
+// Builds the play queue from just the song rows at the current USB level
+// (skipping any folder rows mixed in alongside them - a level can have
+// both, e.g. loose tracks sitting next to album subfolders) and starts
+// playback at the tapped one.
+static void playUsbSongAt(int idx) {
+  static WebRadioStation songsOnly[MAX_STATIONS];
+  int songCount = 0;
+  int startIndex = -1;
+  for (int i = 0; i < stationCount; i++) {
+    if (stationList[i].isFolder) continue;
+    if (i == idx) startIndex = songCount;
+    songsOnly[songCount++] = stationList[i];
+  }
+  if (startIndex < 0) return;  // shouldn't happen - idx was a folder row, not a song row
+
+  closeStationList();
+  volumioPlayUsbSong(songsOnly, songCount, startIndex);
 }
 
 // Returns how many rows the CURRENT mode has, and where their names come
@@ -808,17 +895,19 @@ static void openUsbSongList(const WebRadioStation &folder) {
 // drawStationList() and stationListTouch() so the two can't disagree.
 static int slRowCount() {
   switch (slMode) {
-    case SL_MODE_CHOOSER:     return 2;
-    case SL_MODE_USB_FOLDERS: return usbFolderCount;
-    default:                  return stationCount;  // SL_MODE_FAVORITES or SL_MODE_USB_SONGS
+    case SL_MODE_CHOOSER: return 2;
+    default:              return stationCount;  // SL_MODE_FAVORITES or SL_MODE_USB_BROWSE
   }
 }
 
 static String slRowName(int idx) {
   switch (slMode) {
-    case SL_MODE_CHOOSER:     return String(idx == 0 ? strChoiceWebRadio : strChoiceUsbMusic);
-    case SL_MODE_USB_FOLDERS: return usbFolders[idx].name;
-    default:                  return stationList[idx].name;
+    case SL_MODE_CHOOSER: return String(idx == 0 ? strChoiceWebRadio : strChoiceUsbMusic);
+    default:
+      // Trailing "/" marks folder rows in USB browsing so it's clear which
+      // rows drill deeper vs. which ones play a song.
+      if (slMode == SL_MODE_USB_BROWSE && stationList[idx].isFolder) return stationList[idx].name + " /";
+      return stationList[idx].name;
   }
 }
 
@@ -831,10 +920,9 @@ static void drawStationList() {
 
   String title;
   switch (slMode) {
-    case SL_MODE_CHOOSER:     title = strChooseSourceTitle; break;
-    case SL_MODE_USB_FOLDERS: title = String("< ") + strUsbMusicTitle; break;
-    case SL_MODE_USB_SONGS:   title = String("< ") + slCurrentFolderName; break;
-    default:                  title = slCameFromChooser ? (String("< ") + strStationListTitle) : String(strStationListTitle); break;
+    case SL_MODE_CHOOSER:    title = strChooseSourceTitle; break;
+    case SL_MODE_USB_BROWSE: title = String("< ") + slCurrentFolderName; break;
+    default:                 title = slCameFromChooser ? (String("< ") + strStationListTitle) : String(strStationListTitle); break;
   }
   drawTruncated(title, TEXT_X, 10, SCREEN_W - 60, 2, TFT_BLUE, TL_DATUM);
 
@@ -853,11 +941,19 @@ static void drawStationList() {
   int visible = rowCount - stationScrollOffset;
   if (visible > SL_VISIBLE_ROWS) visible = SL_VISIBLE_ROWS;
 
+  bool showPlayIcons = (slMode != SL_MODE_CHOOSER);  // the chooser's 2 rows are navigation, not playable content
+
   for (int i = 0; i < SL_VISIBLE_ROWS; i++) {
     int rowY = SL_LIST_Y0 + i * SL_ROW_H;
     if (i < visible) {
       int idx = stationScrollOffset + i;
-      drawTruncated(slRowName(idx), TEXT_X, rowY + 9, SCREEN_W - 2 * TEXT_X, 2, TFT_WHITE, TL_DATUM);
+      int textX = showPlayIcons ? SL_ROW_TEXT_X : TEXT_X;
+      int textMaxW = showPlayIcons ? SL_ROW_TEXT_MAXW : (SCREEN_W - 2 * TEXT_X);
+      drawTruncated(slRowName(idx), textX, rowY + 9, textMaxW, 2, TFT_WHITE, TL_DATUM);
+      if (showPlayIcons) {
+        int iconY = rowY + (SL_ROW_H - SL_PLAY_ICON_SIZE) / 2;
+        artworkDrawIcon(stationPlayIcon_IMAGE, SL_PLAY_ICON_X, iconY, SL_PLAY_ICON_SRC, SL_PLAY_ICON_SIZE);
+      }
     }
     tft.drawFastHLine(0, rowY + SL_ROW_H - 1, SCREEN_W, TFT_DARKGREY);
   }
@@ -879,13 +975,8 @@ static void drawStationList() {
 // levels - nothing to go back to, so this is a no-op there).
 static void slGoBack() {
   switch (slMode) {
-    case SL_MODE_USB_SONGS:
-      openUsbFolderList();
-      break;
-    case SL_MODE_USB_FOLDERS:
-      slMode = SL_MODE_CHOOSER;
-      stationScrollOffset = 0;
-      drawStationList();
+    case SL_MODE_USB_BROWSE:
+      usbBrowseGoBack();
       break;
     case SL_MODE_FAVORITES:
       if (slCameFromChooser) {
@@ -920,20 +1011,49 @@ static void slRowTapped(int idx) {
       }
       break;
 
-    case SL_MODE_USB_FOLDERS:
-      if (idx < usbFolderCount) {
-        openUsbSongList(usbFolders[idx]);
+    case SL_MODE_USB_BROWSE:
+      if (idx >= stationCount) break;
+      if (stationList[idx].isFolder) {
+        if (usbStackDepth + 1 >= USB_STACK_MAX) break;  // absurdly deep nesting - ignore rather than overflow the stack
+        usbStackDepth++;
+        usbStackUri[usbStackDepth] = stationList[idx].uri;
+        usbStackName[usbStackDepth] = stationList[idx].name;
+        browseUsbCurrentLevel();
+      } else {
+        playUsbSongAt(idx);
+      }
+      break;
+  }
+}
+
+// A row's Play icon was tapped - always plays immediately, no navigating.
+// Identical to slRowTapped() for songs/favorites (both are already "play
+// this" targets); the one real difference is USB folders, which
+// slRowTapped() opens but this plays everything inside recursively instead
+// (mirrors Volumio's own web UI - see volumioPlayUsbFolder()'s comment).
+static void slRowPlayTapped(int idx) {
+  switch (slMode) {
+    case SL_MODE_FAVORITES:
+      if (idx < stationCount) {
+        WebRadioStation chosen = stationList[idx];
+        closeStationList();
+        volumioPlayWebRadio(chosen);
       }
       break;
 
-    case SL_MODE_USB_SONGS:
-      if (idx < stationCount) {
-        int startIndex = idx;
-        int n = stationCount;  // captured before closeStationList() - it doesn't touch stationList[]/stationCount, but this is cheap insurance if that ever changes
+    case SL_MODE_USB_BROWSE:
+      if (idx >= stationCount) break;
+      if (stationList[idx].isFolder) {
+        WebRadioStation folder = stationList[idx];  // copy - stationList[] goes stale once the overlay closes
         closeStationList();
-        volumioPlayUsbSong(stationList, n, startIndex);
+        volumioPlayUsbFolder(folder);
+      } else {
+        playUsbSongAt(idx);
       }
       break;
+
+    case SL_MODE_CHOOSER:
+      break;  // no play icon shown on these rows - see drawStationList()'s showPlayIcons
   }
 }
 
@@ -982,7 +1102,16 @@ static void stationListTouch(bool touched, uint16_t tx, uint16_t ty) {
     int row = (ty - SL_LIST_Y0) / SL_ROW_H;
     int idx = stationScrollOffset + row;
     if (idx < slRowCount()) {
-      slRowTapped(idx);
+      // Play icon is the leading (leftmost) item on the row (chooser rows
+      // don't have one - see drawStationList()'s showPlayIcons) - a
+      // generous pad past its right edge so it's an easy target on a
+      // resistive touchscreen.
+      static const int PLAY_ICON_TOUCH_PAD_X = 10;
+      if (slMode != SL_MODE_CHOOSER && tx <= SL_PLAY_ICON_X + SL_PLAY_ICON_SIZE + PLAY_ICON_TOUCH_PAD_X) {
+        slRowPlayTapped(idx);
+      } else {
+        slRowTapped(idx);
+      }
     }
   }
 }

@@ -3,7 +3,7 @@
 #include <FS.h>
 #include "LittleFS.h"
 
-#define VERSION "v1.8"  // shown on the settings web page footer - bump by hand each release
+#define VERSION "v1.9"  // shown on the settings web page footer - bump by hand each release
 
 // ---------------------------------------------------------------------
 // Fonts (LittleFS /data folder)
@@ -19,6 +19,12 @@
 #define buttonVolOff_IMAGE  "/buttonVolumeOff.jpg"
 #define buttonVolUp_IMAGE   "/buttonVolumeUp.jpg"
 #define buttonStationList_IMAGE "/buttonStationList.jpg"  // opens the favorite-webradio station switcher
+
+// Per-row Play icon on the station-list/USB-browsing screen (drawStationList()
+// in the .ino) - white play-circle glyph on a solid black background, same
+// "flat-color JPEG, no alpha" deal as the button icons above. 32x32 source,
+// resampled down to SL_PLAY_ICON_SIZE (24px) on screen - see artworkDrawIcon().
+#define stationPlayIcon_IMAGE "/stationPlayIcon.jpg"
 
 // Last-resort cover art fallback - must be JPEG. Optional: box is left
 // black if missing from LittleFS /data.
@@ -39,7 +45,7 @@
 
 // ---------------------------------------------------------------------
 // Display (CYD 2.8" - ESP32-2432S028R, 240x320 portrait, ST7789 +
-// resistive touch). 
+// resistive touch).
 // ---------------------------------------------------------------------
 #define SCREEN_W  240
 #define SCREEN_H  320

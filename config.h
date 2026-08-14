@@ -3,7 +3,7 @@
 #include <FS.h>
 #include "LittleFS.h"
 
-#define VERSION "v1.9"  // shown on the settings web page footer - bump by hand each release
+#define VERSION "v2.0"  // shown on the settings web page footer - bump by hand each release
 
 // ---------------------------------------------------------------------
 // Fonts (LittleFS /data folder)

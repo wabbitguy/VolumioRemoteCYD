@@ -110,3 +110,31 @@ bool volumioPlayUsbSong(WebRadioStation songs[], int songCount, int startIndex);
 // web UI sends (browser DevTools -> Network tab -> click Play on a folder
 // -> inspect the POST body) rather than guessing further blind.
 bool volumioPlayUsbFolder(const WebRadioStation &folder);
+
+// ---------------------------------------------------------------------
+// Playlists - Volumio's own saved-playlist feature, distinct from both the
+// webradio plugin's "Favorite Radios" and from USB browsing. Volumio
+// resolves an entire playlist server-side when asked to play it, so unlike
+// USB there's no need to fetch its song list and manage queue/index
+// ourselves.
+// ---------------------------------------------------------------------
+
+// Lists saved playlist names. Uses the shared WebRadioStation shape purely
+// for its .name field - .uri is left blank (unused; volumioPlayPlaylist()
+// takes the name directly, matching Volumio's own playplaylist command).
+// Returns how many were found (0 = none saved).
+int volumioGetPlaylists(WebRadioStation out[], int maxCount);
+
+// Plays an entire saved playlist by name - Volumio resolves and queues its
+// contents server-side (the same "Play" button behavior Volumio's own web
+// UI has for a whole playlist), used as the Play-icon shortcut on a
+// playlist row (see slRowPlayTapped() in the .ino) - tapping the row itself
+// instead navigates into it via volumioBrowsePlaylist() below, same
+// row-vs-icon split as USB folders.
+bool volumioPlayPlaylist(const String &name);
+
+// Lists the songs inside one playlist, for navigating in and picking a
+// specific track to start from - same "tap a folder, see its songs" model
+// as volumioBrowseUsb(), just scoped to one playlist's contents rather than
+// a USB drive. Returns how many songs were found (0 = empty playlist).
+int volumioBrowsePlaylist(const String &name, WebRadioStation out[], int maxCount);

@@ -576,6 +576,79 @@ bool volumioPlayUsbFolder(const WebRadioStation &folder) {
 }
 
 // ---------------------------------------------------------------------
+// Playlists
+// ---------------------------------------------------------------------
+
+// listplaylists' response shape isn't documented with a concrete example
+// anywhere in Volumio's own REST API docs (checked both
+// volumio.github.io/docs and developers.volumio.com - both describe the
+// endpoint but neither shows a sample response) - confirmed live instead:
+// it's a flat JSON array of playlist name strings (e.g. ["Rock","Chill"]),
+// NOT the {navigation:{lists:[...]}} shape every browse-family endpoint
+// above uses. Simple enough to walk directly with the same low-level
+// stream primitives streamParseBrowseItems() uses (no nested
+// navigation.lists[].items[] to descend through, just one array of
+// strings) - reusing them here rather than a JsonDocument DOM parse keeps
+// this bounded the same way USB browsing is: an end user with a few
+// hundred saved playlists never has that whole response held in memory at
+// once, and reading stops the instant maxCount is reached rather than
+// parsing everything first and truncating after.
+static int streamParseNameArray(Stream &s, WebRadioStation out[], int maxCount) {
+  streamSkipWhitespace(s);
+  if (streamReadByte(s) != '[') return 0;  // not a flat array - the shape assumption above was wrong
+
+  int count = 0;
+  bool first = true;
+  while (streamArrayNext(s, first)) {
+    String name = streamConsumeStringValue(s);
+    if (name.length() == 0) continue;
+    out[count].name = name;
+    out[count].uri = "";  // unused - volumioPlayPlaylist() takes the name directly
+    count++;
+    if (count >= maxCount) return count;  // stop reading entirely - the whole point, see streamParseBrowseItems()'s comment above
+  }
+  return count;
+}
+
+int volumioGetPlaylists(WebRadioStation out[], int maxCount) {
+  HTTPClient http;
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  String url = baseUrl() + "/api/v1/listplaylists";
+  if (!http.begin(url)) return 0;
+
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    http.end();
+    return 0;
+  }
+
+  int count = streamParseNameArray(http.getStream(), out, maxCount);
+  http.end();  // safe even after an early exit mid-response - just closes the socket
+  return count;
+}
+
+bool volumioPlayPlaylist(const String &name) {
+  // Same /commands endpoint as play/pause/volume/etc. - playplaylist always
+  // answers HTTP 200 "success" even for a name that doesn't exist (reported
+  // against a live Volumio on their community forum), so a 200 here only
+  // confirms the request was accepted, not that playback actually started.
+  return volumioCommand("playplaylist&name=" + urlEncode(name));
+}
+
+// Lists the songs inside one playlist - Volumio's own web UI lets you
+// navigate into a playlist and start from any track, same as browsing into
+// a USB folder, so this mirrors that: "playlists" is itself a browsable
+// uri (confirmed in the top-level browse listing, same as "radio" or
+// "music-library/USB"), and "playlists/<name>" drills into one - reusing
+// the same generic streaming browse parser USB uses rather than assuming
+// playlists need their own. Playlists are expected to be flat (no folders
+// nested inside one), but requireKnownType=true handles a folder turning
+// up anyway the same safe way USB browsing does, rather than assuming.
+int volumioBrowsePlaylist(const String &name, WebRadioStation out[], int maxCount) {
+  return browseUriStreaming("playlists/" + name, out, maxCount, true);
+}
+
+// ---------------------------------------------------------------------
 // Settings-page "Test" button
 // ---------------------------------------------------------------------
 bool volumioTestHost(const String &host) {

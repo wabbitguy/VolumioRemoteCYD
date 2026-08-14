@@ -1,7 +1,11 @@
-/* CYD 2.8" - ESP32-2432S028R DEV Module
+/* CYD 2.8" - ESP32-2432S028R
    Driver ST7789
    XPT2046 touch on its own separate SPI bus.
-   NO OTA 2MB APP/2MB SPIFFS
+
+"ESP32 Dev Module"
+Flash Size: 4MB (32Mb)
+PSRAM: Disabled
+Partition Scheme: "No OTA (2MB APP/2MB SPIFFS)"
 */
 
 #include <WiFi.h>
@@ -160,11 +164,13 @@ static void openStationList();
 static void closeStationList();
 static void drawStationList();
 static void stationListTouch(bool touched, uint16_t tx, uint16_t ty);
-static void openFavoritesList();               // webradio Favorite Radios - entry point when no USB is mounted, or chosen from the chooser
+static void openFavoritesList();               // webradio Favorite Radios - entry point when nothing else is available, or chosen from the chooser
 static void openUsbFolderList();                // enters USB browsing at the drive root
 static void browseUsbCurrentLevel();            // (re)fetches and shows whatever USB folder/level usbStackDepth currently points at
 static void usbBrowseGoBack();                  // pops one level of the USB nav stack (or returns to the chooser at the root)
 static void playUsbSongAt(int idx);             // plays the song at row idx, queuing the other songs at this same level
+static void openPlaylistsList();                // fetches and shows the list of saved playlist names
+static void openPlaylistSongs(const String &name);  // fetches and shows the songs inside one tapped playlist
 static int slRowCount();                        // how many rows the current mode has
 static String slRowName(int idx);               // row idx's display name in the current mode
 static void slGoBack();                         // header "< Back" tap - no-op at a true top level
@@ -230,9 +236,16 @@ static const int SL_ROW_TEXT_MAXW = SCREEN_W - SL_ROW_TEXT_X - TEXT_X;    // sam
 // SL_MODE_USB_FOLDERS/SL_MODE_USB_SONGS pair, which only handled drives laid
 // out as "USB/<folder>/<song>.mp3" and silently found nothing on the far
 // more common "USB/<artist>/<album>/<song>.mp3" layout.
-enum StationListMode { SL_MODE_FAVORITES, SL_MODE_CHOOSER, SL_MODE_USB_BROWSE };
+// SL_MODE_PLAYLISTS (list of saved playlist names) and SL_MODE_PLAYLIST_SONGS
+// (songs inside whichever one was tapped) mirror SL_MODE_USB_BROWSE's row-
+// tap-navigates/icon-tap-plays-everything split, just always exactly one
+// level deep - Volumio's own web UI lets you drill into a playlist and
+// start from any track the same way it does a USB folder, and a playlist
+// itself is flat (no nested folders), so there's no need for USB's
+// arbitrary-depth stack here.
+enum StationListMode { SL_MODE_FAVORITES, SL_MODE_CHOOSER, SL_MODE_USB_BROWSE, SL_MODE_PLAYLISTS, SL_MODE_PLAYLIST_SONGS };
 static StationListMode slMode = SL_MODE_FAVORITES;
-static bool slCameFromChooser = false;  // true only if favorites was reached via the chooser (vs. auto-skip when no USB is mounted) - controls whether a back arrow shows
+static bool slCameFromChooser = false;  // true only if favorites was reached via the chooser (vs. auto-skip when nothing else is available) - controls whether a back arrow shows
 static String slCurrentFolderName;  // for the "< A" / "< B" back-button label while viewing a folder's songs
 
 // USB navigation stack - usbStackUri[0..usbStackDepth] is the path of URIs
@@ -243,6 +256,17 @@ static const int USB_STACK_MAX = 8;  // e.g. USB/Artist/Album/Disc/... - plenty 
 static String usbStackUri[USB_STACK_MAX];
 static String usbStackName[USB_STACK_MAX];
 static int usbStackDepth = 0;
+
+// Chooser rows are built dynamically from whichever sources actually have
+// content, rather than a fixed-length list - e.g. no USB mounted and no
+// saved playlists means the chooser is skipped entirely (straight to
+// Favorites, same as before USB/Playlists existed); USB with no playlists
+// shows just those two rows; all three show once both exist. Never a dead/
+// disabled row for a source with nothing in it.
+enum ChooserSource { CH_FAVORITES, CH_USB, CH_PLAYLISTS };
+static const int CHOOSER_SOURCE_MAX = 3;
+static ChooserSource chooserSources[CHOOSER_SOURCE_MAX];
+static int chooserSourceCount = 0;
 
 // ---------------------------------------------------------------------
 // Main
@@ -776,17 +800,36 @@ static void openStationList() {
   String usbRootUri;
   bool hasUsb = volumioGetUsbRootUri(usbRootUri);
 
-  if (hasUsb) {
-    slMode = SL_MODE_CHOOSER;
-    stationScrollOffset = 0;
-    slWasTouched = true;  // finger is still down from the tap that opened this screen - don't let it register as a row/close tap too
-    stationListActive = true;
-    drawStationList();
+  // Unlike USB, listplaylists is already a single lightweight flat request
+  // rather than a potentially-deep folder tree, so there's no reason to
+  // split "check if any exist" from "fetch them" the way USB's root-uri
+  // check does - this doubles as both. The fetched data itself isn't kept
+  // around though (openPlaylistsList() re-fetches on entry) - once you can
+  // navigate INTO a playlist and back out again, caching this one fetch
+  // would go stale the moment stationList[] gets reused for that playlist's
+  // songs, so it's simplest to just treat this purely as a presence check
+  // and let openPlaylistsList() always fetch fresh, same as Favorites/USB.
+  stationCount = volumioGetPlaylists(stationList, MAX_STATIONS);
+  bool hasPlaylists = stationCount > 0;
+
+  chooserSourceCount = 0;
+  chooserSources[chooserSourceCount++] = CH_FAVORITES;  // always offered - openFavoritesList() itself handles the empty-favorites case
+  if (hasUsb) chooserSources[chooserSourceCount++] = CH_USB;
+  if (hasPlaylists) chooserSources[chooserSourceCount++] = CH_PLAYLISTS;
+
+  if (chooserSourceCount <= 1) {
+    // Nothing but Favorites is actually available - skip the chooser
+    // entirely, same as before USB/Playlists existed.
+    slCameFromChooser = false;
+    openFavoritesList();
     return;
   }
 
-  slCameFromChooser = false;
-  openFavoritesList();
+  slMode = SL_MODE_CHOOSER;
+  stationScrollOffset = 0;
+  slWasTouched = true;  // finger is still down from the tap that opened this screen - don't let it register as a row/close tap too
+  stationListActive = true;
+  drawStationList();
 }
 
 static void closeStationList() {
@@ -871,6 +914,56 @@ static void usbBrowseGoBack() {
   }
 }
 
+// Fetches and shows the list of saved playlist names - always fetches
+// fresh (same as openFavoritesList()) rather than reusing openStationList()'s
+// presence-check fetch, since that data would already be stale once the
+// user's navigated into a playlist and back out (stationList[] gets reused
+// for that playlist's songs in the meantime).
+static void openPlaylistsList() {
+  displayShowStatus(strStationsLoading, true);
+  stationCount = volumioGetPlaylists(stationList, MAX_STATIONS);
+
+  if (stationCount <= 0) {
+    // Only reachable if every saved playlist got deleted server-side in the
+    // moment between the chooser's presence check and this tap - same edge
+    // case openUsbFolderList() guards against for an unplugged drive.
+    slMode = SL_MODE_CHOOSER;
+    stationScrollOffset = 0;
+    drawStationList();
+    return;
+  }
+
+  slMode = SL_MODE_PLAYLISTS;
+  stationScrollOffset = 0;
+  slWasTouched = true;
+  stationListActive = true;
+  drawStationList();
+}
+
+// Fetches and shows the songs inside one tapped playlist - same "tap a
+// folder, see what's in it" model as USB browsing, just always exactly one
+// level (a playlist doesn't nest). Falls back to the playlist-name list
+// (rather than closing entirely) if it turns out to be empty, same spirit
+// as browseUsbCurrentLevel()'s empty-folder handling.
+static void openPlaylistSongs(const String &name) {
+  displayShowStatus(strStationsLoading, true);
+  stationCount = volumioBrowsePlaylist(name, stationList, MAX_STATIONS);
+  slCurrentFolderName = name;
+
+  if (stationCount <= 0) {
+    displayShowStatus(strPlaylistEmpty, true);
+    delay(1200);
+    openPlaylistsList();
+    return;
+  }
+
+  slMode = SL_MODE_PLAYLIST_SONGS;
+  stationScrollOffset = 0;
+  slWasTouched = true;
+  stationListActive = true;
+  drawStationList();
+}
+
 // Builds the play queue from just the song rows at the current USB level
 // (skipping any folder rows mixed in alongside them - a level can have
 // both, e.g. loose tracks sitting next to album subfolders) and starts
@@ -895,14 +988,20 @@ static void playUsbSongAt(int idx) {
 // drawStationList() and stationListTouch() so the two can't disagree.
 static int slRowCount() {
   switch (slMode) {
-    case SL_MODE_CHOOSER: return 2;
-    default:              return stationCount;  // SL_MODE_FAVORITES or SL_MODE_USB_BROWSE
+    case SL_MODE_CHOOSER: return chooserSourceCount;
+    default:              return stationCount;  // SL_MODE_FAVORITES, SL_MODE_USB_BROWSE, SL_MODE_PLAYLISTS, or SL_MODE_PLAYLIST_SONGS
   }
 }
 
 static String slRowName(int idx) {
   switch (slMode) {
-    case SL_MODE_CHOOSER: return String(idx == 0 ? strChoiceWebRadio : strChoiceUsbMusic);
+    case SL_MODE_CHOOSER:
+      switch (chooserSources[idx]) {
+        case CH_FAVORITES: return String(strChoiceWebRadio);
+        case CH_USB:       return String(strChoiceUsbMusic);
+        case CH_PLAYLISTS: return String(strChoicePlaylists);
+      }
+      return "";
     default:
       // Trailing "/" marks folder rows in USB browsing so it's clear which
       // rows drill deeper vs. which ones play a song.
@@ -920,8 +1019,10 @@ static void drawStationList() {
 
   String title;
   switch (slMode) {
-    case SL_MODE_CHOOSER:    title = strChooseSourceTitle; break;
-    case SL_MODE_USB_BROWSE: title = String("< ") + slCurrentFolderName; break;
+    case SL_MODE_CHOOSER:        title = strChooseSourceTitle; break;
+    case SL_MODE_USB_BROWSE:     title = String("< ") + slCurrentFolderName; break;
+    case SL_MODE_PLAYLISTS:      title = String("< ") + strPlaylistsTitle; break;  // always reached via the chooser, so always "< "
+    case SL_MODE_PLAYLIST_SONGS: title = String("< ") + slCurrentFolderName; break;  // slCurrentFolderName holds the playlist's own name here
     default:                 title = slCameFromChooser ? (String("< ") + strStationListTitle) : String(strStationListTitle); break;
   }
   drawTruncated(title, TEXT_X, 10, SCREEN_W - 60, 2, TFT_BLUE, TL_DATUM);
@@ -941,7 +1042,7 @@ static void drawStationList() {
   int visible = rowCount - stationScrollOffset;
   if (visible > SL_VISIBLE_ROWS) visible = SL_VISIBLE_ROWS;
 
-  bool showPlayIcons = (slMode != SL_MODE_CHOOSER);  // the chooser's 2 rows are navigation, not playable content
+  bool showPlayIcons = (slMode != SL_MODE_CHOOSER);  // the chooser's rows are navigation, not playable content
 
   for (int i = 0; i < SL_VISIBLE_ROWS; i++) {
     int rowY = SL_LIST_Y0 + i * SL_ROW_H;
@@ -978,7 +1079,11 @@ static void slGoBack() {
     case SL_MODE_USB_BROWSE:
       usbBrowseGoBack();
       break;
+    case SL_MODE_PLAYLIST_SONGS:
+      openPlaylistsList();  // back to the playlist-name list, one level up
+      break;
     case SL_MODE_FAVORITES:
+    case SL_MODE_PLAYLISTS:
       if (slCameFromChooser) {
         slMode = SL_MODE_CHOOSER;
         stationScrollOffset = 0;
@@ -995,11 +1100,19 @@ static void slGoBack() {
 static void slRowTapped(int idx) {
   switch (slMode) {
     case SL_MODE_CHOOSER:
-      if (idx == 0) {
-        slCameFromChooser = true;
-        openFavoritesList();
-      } else if (idx == 1) {
-        openUsbFolderList();
+      if (idx >= chooserSourceCount) break;
+      switch (chooserSources[idx]) {
+        case CH_FAVORITES:
+          slCameFromChooser = true;
+          openFavoritesList();
+          break;
+        case CH_USB:
+          openUsbFolderList();
+          break;
+        case CH_PLAYLISTS:
+          slCameFromChooser = true;
+          openPlaylistsList();
+          break;
       }
       break;
 
@@ -1008,6 +1121,30 @@ static void slRowTapped(int idx) {
         WebRadioStation chosen = stationList[idx];  // copy - stationList[] is about to go stale once the overlay closes
         closeStationList();
         volumioPlayWebRadio(chosen);
+      }
+      break;
+
+    case SL_MODE_PLAYLISTS:
+      // Row tap navigates in - see the header's < Back to leave, and
+      // slRowPlayTapped() for the "play the whole playlist now" shortcut
+      // on this row's Play icon instead. Name copied out FIRST -
+      // openPlaylistSongs() immediately reuses/overwrites stationList[],
+      // which is exactly the array this reference would otherwise alias.
+      if (idx < stationCount) {
+        String name = stationList[idx].name;
+        openPlaylistSongs(name);
+      }
+      break;
+
+    case SL_MODE_PLAYLIST_SONGS:
+      // Playlists are flat - no folder filtering needed the way
+      // playUsbSongAt() does for a USB level, stationList[]/stationCount
+      // here IS the whole playlist already, in order.
+      if (idx < stationCount) {
+        int startIndex = idx;
+        int n = stationCount;  // captured before closeStationList() - it doesn't touch stationList[]/stationCount, but cheap insurance if that ever changes
+        closeStationList();
+        volumioPlayUsbSong(stationList, n, startIndex);  // fully generic despite the name - just a replaceAndPlay with list+index
       }
       break;
 
@@ -1038,6 +1175,28 @@ static void slRowPlayTapped(int idx) {
         WebRadioStation chosen = stationList[idx];
         closeStationList();
         volumioPlayWebRadio(chosen);
+      }
+      break;
+
+    case SL_MODE_PLAYLISTS:
+      // The one row where tap and icon-tap genuinely differ here: the row
+      // itself navigates in (slRowTapped()), this plays the whole playlist
+      // immediately without opening it first - same split as USB folders.
+      if (idx < stationCount) {
+        String name = stationList[idx].name;
+        closeStationList();
+        volumioPlayPlaylist(name);
+      }
+      break;
+
+    case SL_MODE_PLAYLIST_SONGS:
+      // No folder/song distinction inside a playlist - same action as
+      // slRowTapped() for this mode.
+      if (idx < stationCount) {
+        int startIndex = idx;
+        int n = stationCount;
+        closeStationList();
+        volumioPlayUsbSong(stationList, n, startIndex);
       }
       break;
 

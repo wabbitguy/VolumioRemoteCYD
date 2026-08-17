@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Install Volumio Remote CYD</title>
+
+  <!-- ESP Web Tools install button component -->
+  <script
+    type="module"
+    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+  ></script>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+      --accent: #2f6feb;
+      --bg: #ffffff;
+      --fg: #1b1f24;
+      --muted: #6b7280;
+      --border: #e2e5e9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      display: flex;
+      justify-content: center;
+      padding: 48px 16px;
+    }
+    main {
+      width: 100%;
+      max-width: 560px;
+    }
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 4px;
+    }
+    p.subtitle {
+      color: var(--muted);
+      margin-top: 0;
+      margin-bottom: 32px;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--fg);
+      margin-bottom: 20px;
+    }
+    esp-web-install-button {
+      display: block;
+    }
+    esp-web-install-button button {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+    }
+    esp-web-install-button[install-unsupported] { display: none; }
+    #unsupported {
+      display: none;
+      background: #fff3cd;
+      border: 1px solid #ffe69c;
+      color: #664d03;
+      padding: 14px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+    }
+    .steps {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .steps li { margin-bottom: 6px; }
+    footer {
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-align: center;
+      margin-top: 24px;
+    }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Volumio Remote &mdash; CYD Install</h1>
+    <p class="subtitle">Flash your 2.8&quot; CYD (Cheap Yellow Display) with the Volumio Remote firmware directly from your browser. No Arduino IDE required.</p>
+
+    <div id="unsupported">
+      This installer needs the Web Serial API, which is only available in
+      <strong>Chrome</strong> or <strong>Edge</strong> on desktop. Please open this page in one of
+      those browsers.
+    </div>
+
+    <div class="card">
+      <label for="language">Language</label>
+      <select id="language">
+        <option value="en" selected>English</option>
+        <option value="de">Deutsch</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+        <option value="nl">Nederlands</option>
+        <option value="pt">Português</option>
+      </select>
+
+      <esp-web-install-button id="install-btn" manifest="firmware/en/manifest.json">
+        <button slot="activate">Connect &amp; Install</button>
+      </esp-web-install-button>
+    </div>
+
+    <div class="card">
+      <strong>Before you start:</strong>
+      <ol class="steps">
+        <li>Connect your CYD board to this computer with a USB data cable (not charge-only).</li>
+        <li>Click &quot;Connect &amp; Install&quot; above, then choose the correct serial port from the browser prompt.</li>
+        <li>The tool will erase the board and flash the selected firmware automatically.</li>
+        <li>Once it finishes, the board will reboot into Volumio Remote.</li>
+      </ol>
+    </div>
+
+    <footer>
+      Having trouble? Check the
+      <a href="https://github.com/YOUR-USERNAME/VolumioRemoteCYD" target="_blank" rel="noopener">project README</a>
+      for manual flashing instructions.
+    </footer>
+  </main>
+
+  <script>
+    const select = document.getElementById('language');
+    const installBtn = document.getElementById('install-btn');
+    const unsupported = document.getElementById('unsupported');
+
+    select.addEventListener('change', () => {
+      installBtn.setAttribute('manifest', `firmware/${select.value}/manifest.json`);
+    });
+
+    // Web Serial API feature check
+    if (!('serial' in navigator)) {
+      unsupported.style.display = 'block';
+      installBtn.style.display = 'none';
+    }
+  </script>
+</body>
+</html>

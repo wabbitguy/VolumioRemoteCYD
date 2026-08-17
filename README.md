@@ -35,15 +35,15 @@ Arduino IDE sketch.
 
 ## Select Source
 
-Touch the lined icon opposite corner of the wifi display. Select from any web radios you have saved in Volumio's Favorite Radios or from any USB source. When playing from USB, providing the song was saved with artist/album Volumio Remote will look for the album cover. An album cover that can't be found will display a "no clue" graphic. Selecting any song in a USB list will play that list and stop, it does not repeat ad nauseam.
+Touch the lined icon opposite corner of the wifi display. Select from any web radios you have saved in Volumio's Favorite Radios, USB, your favourite playlists. When playing from USB, providing the song was saved with artist/album Volumio Remote will look for the album cover. An album cover that can't be found will display a "no clue" graphic. Selecting any song in a USB song list or Playlist will play that list and stop, it does not repeat ad nauseam.
 
 
-<img width="221" height="480" alt="Source" src="https://github.com/user-attachments/assets/8b606791-b803-46b0-8188-4b160c0fa1a8" />
+<img width="249" height="320" alt="IMG_0085 2" src="https://github.com/user-attachments/assets/772d4c62-0b0e-4850-a8c1-e1f39710dd4f" />
 
 
-## USB Player
+## USB/Playlist Player
 
-The USB play section mirrors the way Volumio works in a web browser. If you press the > beside a folder it will play all the items in that folder. Selecting a song inside a folder will play all the songs in that folder (and any folders within that list of songs same as Volumio).
+The USB/Playlist play section mirrors the way Volumio works in a web browser. If you press the > beside a folder it will play all the items in that folder. Selecting a song inside a folder will play all the songs in that folder (and any folders within that list of songs same as Volumio).
 
 <img width="480" height="630" alt="USB_Player" src="https://github.com/user-attachments/assets/352e1f77-e8c5-4623-bbd0-141e592aa20b" />
 

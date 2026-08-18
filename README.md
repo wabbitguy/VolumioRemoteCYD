@@ -2,6 +2,7 @@
 
 A remote display + touch transport controls for a Volumio box, running on
 a "CYD" (Cheap Yellow Display) 2.8" ESP32 board - ESP32-2432S028R. ST7789 TFT Driver was used.
+A browser based setup is supported, check the Setup section below.
 
 <img width="275" height="480" alt="VolumioRemote" src="https://github.com/user-attachments/assets/de219ee3-b152-4103-84b6-af598e80fac5" />
 
@@ -38,14 +39,19 @@ Arduino IDE sketch.
 Touch the lined icon opposite corner of the wifi display. Select from any web radios you have saved in Volumio's Favorite Radios, USB, your favourite playlists. When playing from USB, providing the song was saved with artist/album Volumio Remote will look for the album cover. An album cover that can't be found will display a "no clue" graphic. Selecting any song in a USB song list or Playlist will play that list and stop, it does not repeat ad nauseam.
 
 
-<img width="249" height="320" alt="IMG_0085 2" src="https://github.com/user-attachments/assets/772d4c62-0b0e-4850-a8c1-e1f39710dd4f" />
+<img width="240" height="320" alt="mainWind" src="https://github.com/user-attachments/assets/6fe893fb-33b5-4d87-a46c-9f9b5ec60b4f" />
+
+and from a USB drive:
+
+<img width="240" height="320" alt="playlist" src="https://github.com/user-attachments/assets/d2ca7a99-f18f-4f6d-bc41-7aa149a9dc13" />
+
 
 
 ## USB/Playlist Player
 
 The USB/Playlist play section mirrors the way Volumio works in a web browser. If you press the > beside a folder it will play all the items in that folder. Selecting a song inside a folder will play all the songs in that folder (and any folders within that list of songs same as Volumio).
 
-<img width="480" height="630" alt="USB_Player" src="https://github.com/user-attachments/assets/352e1f77-e8c5-4623-bbd0-141e592aa20b" />
+<img width="240" height="320" alt="sources" src="https://github.com/user-attachments/assets/1efba26f-b6b3-4561-ba25-f0aaa09e74e0" />
 
 
 ## Board settings (Arduino IDE)
@@ -84,6 +90,13 @@ Note the laguage setting does NOT translate the songs or albums that Volumio giv
 
 ## Setup
 
+### 🚀 Quick Install (no Arduino IDE needed)
+
+[**Click here to install VolumioRemoteCYD from your browser**](https://wabbitguy.github.io/VolumioRemoteCYD-Install/)
+
+Works in Chrome, Edge, Opera, or recent Firefox on desktop. Not supported in Safari. Plug in your CYD over USB, pick your language, and click Install.
+
+-----
 ### 1. Download and rename the sketch folder
 
 Download the zip from GitHub and extract it. GitHub will produce a folder called "VolumioRemoteCYD-master" or "VolumioRemoteCYD-main". Remove the "-master" or "-main" from the folder/directory name. This must be done before the sketch is loaded into the Arduino 2.3.x IDE.

@@ -2,7 +2,8 @@
 
 A remote display + touch transport controls for a Volumio box, running on
 a "CYD" (Cheap Yellow Display) 2.8" ESP32 board - ESP32-2432S028R. ST7789 TFT Driver was used.
-A browser based setup is supported, check the Setup section below.
+
+***A browser based setup is supported, check the Setup section below.***
 
 <img width="275" height="480" alt="VolumioRemote" src="https://github.com/user-attachments/assets/de219ee3-b152-4103-84b6-af598e80fac5" />
 

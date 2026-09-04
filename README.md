@@ -92,6 +92,7 @@ Note the laguage setting does NOT translate the songs or albums that Volumio giv
 ## Setup
 
 ### 🚀 Quick Install (no Arduino IDE needed)
+### Note this install is for the ST7789 driver!
 
 [**Click here to install VolumioRemoteCYD from your browser**](https://wabbitguy.github.io/VolumioRemoteCYD-Install/)
 

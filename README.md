@@ -3,7 +3,7 @@
 A remote display + touch transport controls for a Volumio box, running on
 a "CYD" (Cheap Yellow Display) 2.8" ESP32 board - ESP32-2432S028R. ST7789 TFT Driver was used.
 
-***A browser based setup is supported, check the Setup section below.***
+***A browser based setup for ST7789 is supported, check the Setup section below.***
 
 <img width="275" height="480" alt="VolumioRemote" src="https://github.com/user-attachments/assets/de219ee3-b152-4103-84b6-af598e80fac5" />
 
@@ -12,7 +12,7 @@ Arduino IDE sketch.
 ## Hardware
 
 * ESP32 CYD (Cheap Yellow Display) — 2.8" 240×320 TFT with XPT2046 touchscreen
-* The board used and tested is the ST7789-based CYD. Earlier boards used an ILI9341 driver. Included is the ST7789 driver in the TFT-eSPI_ST7789 folder. Copy the User_Setup.h to your TFT_eSPI folder in your Arduino libraries to use it.
+* The board used and tested is the ST7789-based CYD. Earlier boards used an ILI9341 driver. Included are both ILI9341 and ST7789 drivers. Copy the correct one to your TFT_eSPI folder in your Arduino libraries and rename it to User_Setup.h.
 
 <img width="480" height="287" alt="CYD_Back" src="https://github.com/user-attachments/assets/9724d696-0d97-4f9f-8807-8aac3eacd8e9" />
 

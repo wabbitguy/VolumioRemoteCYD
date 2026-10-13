@@ -83,7 +83,6 @@ Open `Language.h` and uncomment the language you want:
 //#define LANG_ES   // Spanish
 //#define LANG_NL   // Dutch
 //#define LANG_PT   // Portuguese
-//#define LANG_TR   // Turkish
 ```
 
 Note the language setting does NOT translate the songs or albums that Volumio gives it. It is for the VolumioRemote user interface.

@@ -29,9 +29,9 @@ Arduino IDE sketch.
 * Supports web radio and USB navigation for selection
 * Log into VolumioRemote.local (or IP) to set preferences
 * Calibration built in for touch screen (first run or via Preferences)
-* Uses Discogs free API to retrive album artwork (sign in to Discogs to get free API; no subscription required)
+* Uses Discogs free API to retrieve album artwork (sign in to Discogs to get free API; no subscription required)
 * Screen saver when idle for selected minutes (saves burn in)
-* Multi-language supported: Enlish, French, German, Spanish, Dutch, Portuguese
+* Multi-language supported: English, French, German, Spanish, Dutch, Portuguese
 * Captive portal for easy Wifi setup on LAN
 
 
@@ -86,7 +86,7 @@ Open `Language.h` and uncomment the language you want:
 //#define LANG_TR   // Turkish
 ```
 
-Note the laguage setting does NOT translate the songs or albums that Volumio gives it. It is for the VolumioRemote user interface.
+Note the language setting does NOT translate the songs or albums that Volumio gives it. It is for the VolumioRemote user interface.
 
 
 ## Setup

@@ -74,7 +74,7 @@ The USB/Playlist play section mirrors the way Volumio works in a web browser. If
 
 ## Language Selection
 
-Open `Translation.h` and uncomment the language you want:
+Open `Language.h` and uncomment the language you want:
 
 ```cpp
 #define LANG_EN   // English  (default)

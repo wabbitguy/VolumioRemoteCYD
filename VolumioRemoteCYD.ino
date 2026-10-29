@@ -165,6 +165,7 @@ static uint32_t lastTouchLogMs = 0;                 // millis() of last debug pr
 static const uint32_t TOUCH_LOG_INTERVAL_MS = 250;  // min gap between debug prints
 
 static WiFiManager wm;      // captive-portal WiFi provisioning
+static bool portalShown = false;  // portal blanked the screen
 static void connectWifi();  // saved Wi-Fi, or the setup portal
 
 static VolumioState currentState;  // last polled Volumio state
@@ -1725,6 +1726,10 @@ static void connectWifi() {
     delay(500);
   }
 
+  if (portalShown) {  // portal wiped the icons
+    portalShown = false;
+    redrawMainScreen();
+  }
   displayShowStatus(String(strConnected) + WiFi.localIP().toString());
 }
 
@@ -1784,6 +1789,7 @@ int8_t getWifiQuality() {
 
 // ---- WiFi setup portal screen ----
 void configModeCallback(WiFiManager *wm) {
+  portalShown = true;
   tft.fillScreen(TFT_BLACK);
   tft.setTextDatum(TC_DATUM);
   tft.setTextColor(TFT_GREEN, TFT_BLACK);

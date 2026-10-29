@@ -1,8 +1,6 @@
 #include "webui.h"
-#include "settings.h"
-#include "config.h"
+#include "Settings.h"
 #include "volumio_api.h"
-#include "Language.h"
 #include "Translation.h"
 #include <WiFi.h>
 #include <WebServer.h>
@@ -10,9 +8,6 @@
 
 static WebServer server(80);
 
-// Matches whichever single LANG_XX is uncommented in Language.h - drives the
-// page's <html lang="..."> attribute only (all visible text already comes
-// from Translation.h via the wc* constants).
 #if defined(LANG_FR)
   static const char kHtmlLang[] = "fr";
 #elif defined(LANG_DE)
@@ -23,14 +18,13 @@ static WebServer server(80);
   static const char kHtmlLang[] = "nl";
 #elif defined(LANG_PT)
   static const char kHtmlLang[] = "pt";
+#elif defined(LANG_TR)
+  static const char kHtmlLang[] = "tr";
 #else
   static const char kHtmlLang[] = "en";
 #endif
 
-// ---------------------------------------------------------------------
-// Settings page template - self-contained (no CDN calls). %TOKEN% /
-// %CHECKED% / %IP% etc. substituted in handleRoot().
-// ---------------------------------------------------------------------
+// ---- Settings page ----
 static const char PAGE_TEMPLATE[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <html lang="%WC_HTML_LANG%">
 <head>
@@ -221,34 +215,21 @@ if (new URLSearchParams(location.search).get('saved') === '1') {
 </html>
 )rawliteral";
 
-// ---------------------------------------------------------------------
-// Request handlers
-// ---------------------------------------------------------------------
-
-// Escapes just enough that a stray `"` in a pasted token can't break value="...".
-static String escapeAttr(const String &s) {
+// ---- Request handlers ----
+static String escapeAttr(const String &s) {  // escape " for value="..."
   String out = s;
   out.replace("&", "&amp;");
   out.replace("\"", "&quot;");
   return out;
 }
 
-// Escapes a translated string for safe embedding inside a single-quoted JS
-// string literal - applied to every wc* constant that lands inside <script>
-// or an onclick="...(...)" attribute, so a translation with an apostrophe
-// (e.g. French/Spanish "n'est"-style text) can never break the page's JS.
-// Order matters: backslash first, then the quote, so an escaped quote's own
-// backslash doesn't get re-escaped.
-static String jsEscape(const String &s) {
+static String jsEscape(const String &s) {  // escape for single-quoted JS
   String out = s;
   out.replace("\\", "\\\\");
   out.replace("'", "\\'");
   return out;
 }
 
-// Builds the <option> list for the screensaver minutes dropdown, with
-// `selected` on whatever's currently saved - plain server-rendered options
-// rather than JS, so the page still works with JS disabled/broken.
 static String buildMinuteOptions(int selected) {
   String out;
   for (int v = 0; v <= 60; v += 5) {
@@ -259,10 +240,8 @@ static String buildMinuteOptions(int selected) {
   return out;
 }
 
-// Same server-rendered-options pattern as buildMinuteOptions() above - keep
-// the value order in sync with the SS_MODE_* constants in Volumio_Player.ino.
-static String buildModeOptions(int selected) {
-  static const char *kLabels[] = { "Bounce", "Fireworks", "Tetris", "Starfield", "Matrix" };
+static String buildModeOptions(int selected) {  // same order as SS_MODE_* in the .ino
+  static const char *kLabels[] = { wcSsBounce, wcSsFireworks, wcSsTetris, wcSsStarfield, wcSsMatrix };
   static const int kCount = sizeof(kLabels) / sizeof(kLabels[0]);
   String out;
   for (int v = 0; v < kCount; v++) {
@@ -284,7 +263,6 @@ static void handleRoot() {
   html.replace("%SS_MIN_OPTIONS%", buildMinuteOptions(settingsGetScreensaverTimeoutMin()));
   html.replace("%SS_MODE_OPTIONS%", buildModeOptions(settingsGetScreensaverMode()));
 
-  // Plain HTML text/attribute content - escapeAttr() is enough here.
   html.replace("%WC_HTML_LANG%", kHtmlLang);
   html.replace("%WC_PAGE_TITLE%", wcPageTitle);
   html.replace("%WC_HEADING%", wcHeading);
@@ -304,11 +282,7 @@ static void handleRoot() {
   html.replace("%WC_RESETWIFI_BTN%", wcResetWifi);
   html.replace("%WC_SETTINGS_SAVED%", wcSettingsSaved);
 
-  // These land inside single-quoted JS (either a <script> literal or a
-  // JS-string argument sitting inside an onclick="..." attribute) - jsEscape()
-  // first so an apostrophe in a translation can't break out, then escapeAttr()
-  // for the two that also sit inside a double-quoted HTML attribute.
-  html.replace("%WC_RECAL_CONFIRM%", escapeAttr(jsEscape(wcRecalConfirm)));
+  html.replace("%WC_RECAL_CONFIRM%", escapeAttr(jsEscape(wcRecalConfirm)));  // JS escape, then HTML escape
   html.replace("%WC_RESETWIFI_CONFIRM%", escapeAttr(jsEscape(wcResetWifiConfirm)));
   html.replace("%WC_REBOOTING_JS%", jsEscape(wcRebooting));
   html.replace("%WC_SETTINGS_SAVED_JS%", jsEscape(wcSettingsSaved));
@@ -316,10 +290,7 @@ static void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-// Backs the settings page's "Test" button - checks whatever host/IP is
-// currently typed into the field, not the saved setting, so the user can
-// try a value before committing to it with Update.
-static void handleTestHost() {
+static void handleTestHost() {  // tests the typed host, not the saved one
   String host = server.hasArg("host") ? server.arg("host") : "";
   bool ok = volumioTestHost(host);
   server.send(200, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
@@ -333,9 +304,7 @@ static void handleSave() {
   if (server.hasArg("discogs")) {
     settingsSetDiscogsToken(server.arg("discogs"));
   }
-  // Unchecked checkboxes simply aren't sent by the browser, so presence
-  // of the arg (not its value) is what matters here.
-  settingsSetUseItunes(server.hasArg("itunes"));
+  settingsSetUseItunes(server.hasArg("itunes"));  // unchecked boxes aren't sent
 
   uint32_t ssMin = server.hasArg("ss_min") ? (uint32_t)server.arg("ss_min").toInt() : 0;
   settingsSetScreensaverTimeoutMin(ssMin);
@@ -350,7 +319,7 @@ static void handleSave() {
 
 static void handleWifiReset() {
   server.send(200, "text/plain", "Resetting WiFi settings, device is rebooting...");
-  delay(300);  // let the response flush before the reboot tears down the connection
+  delay(300);  // let the reply send before rebooting
   requestWifiReset();
 }
 
@@ -364,9 +333,7 @@ static void handleNotFound() {
   server.send(404, "text/plain", "Not found");
 }
 
-// ---------------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------------
+// ---- Init ----
 void webuiInit() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/save", HTTP_POST, handleSave);
@@ -376,8 +343,7 @@ void webuiInit() {
   server.onNotFound(handleNotFound);
   server.begin();
 
-  // Advertises as http://<WIFI_PORTAL_AP_NAME>.local/.
-  MDNS.begin(WIFI_PORTAL_AP_NAME);
+  MDNS.begin(WIFI_PORTAL_AP_NAME);  // http://VolumioRemote.local
   MDNS.addService("http", "tcp", 80);
 }
 

@@ -1,6 +1,5 @@
 #include "artwork.h"
-#include "config.h"
-#include "settings.h"
+#include "Settings.h"
 #include <TFT_eSPI.h>
 #include <TJpg_Decoder.h>
 #include <WiFiClient.h>
@@ -8,9 +7,7 @@
 #include <ArduinoJson.h>
 #include <string.h>
 
-// No-ops when ART_LOG_VERBOSE is 0 (config.h) - keeps every "Art: ..." call
-// site below unchanged either way, just swap Serial.print[ln|f] for these.
-#if ART_LOG_VERBOSE
+#if ART_LOG_VERBOSE  // Art: messages, set in Settings.h
   #define ART_LOG(...)   Serial.printf(__VA_ARGS__)
   #define ART_LOGLN(...) Serial.println(__VA_ARGS__)
 #else
@@ -20,24 +17,12 @@
 
 extern TFT_eSPI tft;
 
-// ---------------------------------------------------------------------
-// PSRAM buys headroom for the JPEG fetch/decode buffers below (album art
-// fetches can be up to ~300KB raw, before decoding) - the CrowPanel build's
-// WROVER module always has it, but most CYD boards don't. Try PSRAM first,
-// fall back to internal heap: every caller below already treats a null
-// return as "skip this render, fall through to the next source in the
-// chain" (see artworkRender()'s Discogs -> iTunes -> Volumio -> placeholder
-// fallback), so on a PSRAM-less board this just means art/icons are more
-// likely to come up as the placeholder under memory pressure, not a crash.
-static void *artMalloc(size_t size) {
+static void *artMalloc(size_t size) {  // PSRAM if there is one, else heap
   void *p = ps_malloc(size);
   return p ? p : malloc(size);
 }
 
-// ---------------------------------------------------------------------
-// Direct-to-screen JPEG render, clipped to the album-art box (oversized
-// source images can't spill into the text block/buttons below it)
-// ---------------------------------------------------------------------
+// ---- JPEG to screen, clipped to the art box ----
 static int gArtX = 0, gArtY = 0, gArtSize = 0;
 
 static bool jpegRenderCallback(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
@@ -60,7 +45,6 @@ static bool jpegRenderCallback(int16_t x, int16_t y, uint16_t w, uint16_t h, uin
   if (srcOffX == 0 && srcOffY == 0 && drawW == (int)w && drawH == (int)h) {
     tft.pushImage(drawX, drawY, drawW, drawH, bitmap);
   } else {
-    // Cropped tile isn't contiguous in the source buffer - push row at a time.
     for (int row = 0; row < drawH; row++) {
       uint16_t *rowPtr = bitmap + (srcOffY + row) * w + srcOffX;
       tft.pushImage(drawX, drawY + row, drawW, 1, rowPtr);
@@ -75,9 +59,7 @@ void artworkInit() {
   TJpgDec.setCallback(jpegRenderCallback);
 }
 
-// TJpg_Decoder only supports power-of-2 downscaling (1/1, 1/2, 1/4, 1/8).
-// Pick the smallest divisor that gets the image down to fit `boxSize`.
-static uint8_t fitScale(uint16_t jpgW, uint16_t jpgH, int boxSize) {
+static uint8_t fitScale(uint16_t jpgW, uint16_t jpgH, int boxSize) {  // TJpg_Decoder scales 1/1, 1/2, 1/4, 1/8 only
   uint8_t scale = 1;
   while (scale < 8 && (jpgW / scale > boxSize || jpgH / scale > boxSize)) {
     scale *= 2;
@@ -85,12 +67,7 @@ static uint8_t fitScale(uint16_t jpgW, uint16_t jpgH, int boxSize) {
   return scale;
 }
 
-// ---------------------------------------------------------------------
-// Buffered decode + nearest-neighbor resample - used when the power-of-2
-// scale step doesn't land exactly on the box size. Separate globals from
-// gIconBuf/gIconBufSize below so an in-flight icon redraw and album art
-// fetch can never stomp on each other's buffer.
-// ---------------------------------------------------------------------
+// ---- Decode and resample to the box ----
 static uint16_t *gArtBuf = nullptr;
 static int gArtBufW = 0, gArtBufH = 0;
 
@@ -109,19 +86,13 @@ static bool artBufRenderCallback(int16_t x, int16_t y, uint16_t w, uint16_t h, u
   return true;
 }
 
-// ---------------------------------------------------------------------
-// Download a JPEG at `url` into a buffer (PSRAM if available - see
-// artMalloc() above) and draw it filling `size` x `size`.
-// ---------------------------------------------------------------------
+// ---- Download and draw a JPEG ----
 static bool fetchAndDraw(const String &url, int x, int y, int size) {
   if (url.length() == 0) return false;
 
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
-  // HTTP/1.0 avoids chunked transfer-encoding - a dynamically resized image
-  // (Discogs' proxy especially) can come back chunked with no
-  // Content-Length, which made getSize() below return -1.
-  http.useHTTP10(true);
+  http.useHTTP10(true);  // no chunked replies
   if (!http.begin(url)) {
     ART_LOGLN("Art: fetchAndDraw http.begin() failed");
     return false;
@@ -167,9 +138,7 @@ static bool fetchAndDraw(const String &url, int x, int y, int size) {
     return false;
   }
 
-  // Signature check - TJpg_Decoder only handles JPEG, and Volumio's generic
-  // placeholder / station logos are just as likely to be PNG/GIF/WEBP.
-  if (len >= 4 && !(buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF)) {
+  if (len >= 4 && !(buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF)) {  // not a JPEG
     const char *fmt = "unknown format";
     if (buf[0] == 0x89 && buf[1] == 'P' && buf[2] == 'N' && buf[3] == 'G') fmt = "PNG";
     else if (buf[0] == 'G' && buf[1] == 'I' && buf[2] == 'F') fmt = "GIF";
@@ -193,16 +162,12 @@ static bool fetchAndDraw(const String &url, int x, int y, int size) {
 
   bool ok;
   if (drawW == size && drawH == size) {
-    // Lands exactly on the box at this scale - stream straight to the
-    // screen, no intermediate buffer needed.
     gArtX = x;
     gArtY = y;
     gArtSize = size;
     ok = (TJpgDec.drawJpg(x, y, buf, len) == JDR_OK);
     if (!ok) ART_LOGLN("Art: fetchAndDraw TJpgDec.drawJpg() failed (direct path)");
   } else {
-    // Doesn't land exactly - decode at whatever size it does land on, then
-    // resample into the full box rather than centering with black bars.
     uint16_t *srcBuf = (uint16_t *) artMalloc((size_t)drawW * drawH * sizeof(uint16_t));
     ok = false;
     if (!srcBuf) {
@@ -245,13 +210,7 @@ static bool fetchAndDraw(const String &url, int x, int y, int size) {
   return ok;
 }
 
-// ---------------------------------------------------------------------
-// Local "no artwork" placeholder - last resort once Discogs/iTunes/
-// Volumio's own albumart have all come up empty. Defaults to NO_ART_IMAGE
-// (config.h); webradio's stopped state passes webRadioPause instead - see
-// artworkRender(). Same fit/resample logic as fetchAndDraw, reading from
-// LittleFS instead.
-// ---------------------------------------------------------------------
+// ---- No-artwork placeholder ----
 static bool artworkRenderPlaceholder(int x, int y, int size, const char *path = NO_ART_IMAGE) {
   if (!LittleFS.exists(path)) {
     ART_LOG("Art: placeholder image %s not found in LittleFS\n", path);
@@ -313,13 +272,8 @@ static bool artworkRenderPlaceholder(int x, int y, int size, const char *path = 
   return ok;
 }
 
-// ---------------------------------------------------------------------
-// Artist/title parsing (webradio ICY metadata)
-// ---------------------------------------------------------------------
-
-// Reorders "Last, First" to "First Last" - iTunes search matches better
-// that way (e.g. "Jackson, Janet" misses, "Janet Jackson" hits).
-static String normalizeArtistName(const String &artist) {
+// ---- Artist/title parsing ----
+static String normalizeArtistName(const String &artist) {  // "Last, First" -> "First Last" for iTunes
   int comma = artist.indexOf(',');
   if (comma < 0) return artist;
   if (artist.indexOf(',', comma + 1) >= 0) return artist;  // more than one comma isn't this pattern
@@ -331,11 +285,7 @@ static String normalizeArtistName(const String &artist) {
   return first + " " + last;
 }
 
-// Volumio folds ICY StreamTitle into `title` for webradio - `state.artist`
-// can't be trusted (often blank or the station's tagline), so this splits
-// "Artist - Track" or "Last, First, Track" out of the title instead. Keep
-// in sync with Volumio_Player.ino's splitTitle().
-static bool splitArtistTitle(const String &combined, String &artist, String &title) {
+static bool splitArtistTitle(const String &combined, String &artist, String &title) {  // webradio title -> artist + track
   int dash = combined.indexOf(" - ");
   if (dash >= 0) {
     artist = normalizeArtistName(combined.substring(0, dash));
@@ -359,9 +309,7 @@ static bool splitArtistTitle(const String &combined, String &artist, String &tit
   return false;
 }
 
-// ---------------------------------------------------------------------
-// Cover art lookups (Discogs / iTunes)
-// ---------------------------------------------------------------------
+// ---- Cover art lookups ----
 static String urlEncode(const String &s) {
   String out;
   for (size_t i = 0; i < s.length(); i++) {
@@ -377,17 +325,14 @@ static String urlEncode(const String &s) {
   return out;
 }
 
-// Queries the iTunes Search API for real cover art. No API key required.
-static String lookupItunesArt(const String &artist, const String &title) {
+static String lookupItunesArt(const String &artist, const String &title) {  // iTunes Search API, no key
   String term = urlEncode(artist + " " + title);
   String url = String("https://") + ITUNES_SEARCH_HOST +
                "/search?term=" + term + "&entity=song&limit=1";
 
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
-  // HTTP/1.0 avoids chunked encoding - getStream() doesn't de-chunk, so a
-  // chunked response fed into deserializeJson() comes out corrupted.
-  http.useHTTP10(true);
+  http.useHTTP10(true);  // no chunked replies
   if (!http.begin(url)) return "";
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
@@ -406,16 +351,11 @@ static String lookupItunesArt(const String &artist, const String &title) {
   String art100 = doc["results"][0]["artworkUrl100"] | "";
   if (art100.length() == 0) return "";
 
-  // iTunes serves other resolutions by swapping the size token in the filename.
   art100.replace("100x100bb", String(ITUNES_ART_SIZE) + "bb");
   return art100;
 }
 
-// Queries Discogs for cover art - better than iTunes for older/obscure/
-// non-song releases, but needs a personal access token (settings web page).
-// Uses artist=/track= search fields rather than a generic q= term, since
-// q free-text-matches mostly against release (album) titles.
-static String lookupDiscogsArt(const String &artist, const String &title) {
+static String lookupDiscogsArt(const String &artist, const String &title) {  // needs a Discogs token
   String token = settingsGetDiscogsToken();
   if (token.length() == 0) {
     ART_LOGLN("Art: Discogs token not set, skipping");
@@ -430,10 +370,8 @@ static String lookupDiscogsArt(const String &artist, const String &title) {
 
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
-  // Discogs returns empty responses to a generic/missing User-Agent.
-  http.setUserAgent("VolumioRemoteDisplay/1.0");
-  // HTTP/1.0 avoids chunked encoding - see lookupItunesArt.
-  http.useHTTP10(true);
+  http.setUserAgent("VolumioRemoteDisplay/1.0");  // Discogs needs a User-Agent
+  http.useHTTP10(true);  // no chunked replies
   if (!http.begin(url)) {
     ART_LOGLN("Art: Discogs http.begin() failed (bad URL?)");
     return "";
@@ -441,8 +379,6 @@ static String lookupDiscogsArt(const String &artist, const String &title) {
 
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
-    // 401/403 here almost always means the token's wrong/expired - Discogs
-    // accepts it as a plain query-string `token=` param (no header needed).
     ART_LOG("Art: Discogs HTTP %d - check token in settings\n", code);
     http.end();
     return "";
@@ -463,11 +399,7 @@ static String lookupDiscogsArt(const String &artist, const String &title) {
   return results[0]["cover_image"] | "";
 }
 
-// ---------------------------------------------------------------------
-// Button icons - 64x64 source JPEGs resampled to the on-screen size (TJpg_
-// Decoder only scales by powers of two). Swaps TJpgDec's single global
-// callback in/out around the decode rather than sharing jpegRenderCallback.
-// ---------------------------------------------------------------------
+// ---- Button icons ----
 static uint16_t *gIconBuf = nullptr;
 static int gIconBufSize = 0;
 
@@ -487,18 +419,12 @@ static bool iconRenderCallback(int16_t x, int16_t y, uint16_t w, uint16_t h, uin
 }
 
 bool artworkDrawIcon(const char *path, int x, int y, int srcSize, int dstSize) {
-  // Unconditional (not gated behind ART_LOG_VERBOSE) - a missing/corrupt
-  // icon file silently drawing nothing looks identical to "it just didn't
-  // render," which was genuinely hard to tell apart without this. File-
-  // missing and decode-failure are logged separately since they point at
-  // different problems (a bad LittleFS upload vs. a bad JPEG).
   if (!LittleFS.exists(path)) {
     Serial.printf("Art: icon %s not found in LittleFS\n", path);
     return false;
   }
 
   if (srcSize == dstSize) {
-    // Already matches on-screen size - decode straight to the display.
     gArtX = x;
     gArtY = y;
     gArtSize = dstSize;
@@ -551,10 +477,6 @@ bool artworkDrawIcon(const char *path, int x, int y, int srcSize, int dstSize) {
 }
 
 bool artworkDrawIconPressed(const char *path, int x, int y, int srcSize, int dstSize) {
-  // Always buffered - inversion needs the raw pixels before pushing to screen.
-  // Decode into a srcSize buffer first, same two-step as artworkDrawIcon() -
-  // when srcSize == dstSize (the common case) the resample loop below is
-  // just a straight copy, so this degrades to the old behavior for free.
   uint16_t *srcBuf = (uint16_t *) artMalloc((size_t)srcSize * srcSize * sizeof(uint16_t));
   if (!srcBuf) return false;
 
@@ -582,7 +504,7 @@ bool artworkDrawIconPressed(const char *path, int x, int y, int srcSize, int dst
     const uint16_t *srcRow = srcBuf + sy * srcSize;
     uint16_t *dstRow = dstBuf + dy * dstSize;
     for (int dx = 0; dx < dstSize; dx++) {
-      dstRow[dx] = ~srcRow[dx * srcSize / dstSize];  // bitwise invert, RGB565, applied post-resample
+      dstRow[dx] = ~srcRow[dx * srcSize / dstSize];  // invert colours
     }
   }
   free(srcBuf);
@@ -592,47 +514,30 @@ bool artworkDrawIconPressed(const char *path, int x, int y, int srcSize, int dst
   return true;
 }
 
-// Volumio's generic "no art" icon is this exact bare path, no query string -
-// a real per-track cover always has a path=/? query. Treating this URL shape
-// as "no art" lets those tracks fall through to Discogs/iTunes/placeholder.
-static bool isGenericVolumioArt(const String &url) {
+static bool isGenericVolumioArt(const String &url) {  // Volumio's own no-art icon
   int qsAt = url.indexOf('?');
   String noQuery = (qsAt >= 0) ? url.substring(0, qsAt) : url;
   return noQuery.endsWith("/albumart");
 }
 
-// ---------------------------------------------------------------------
-// Top-level render + fallback chain: library albumart -> Discogs/iTunes ->
-// Volumio's own albumart -> local placeholder.
-// ---------------------------------------------------------------------
+// ---- Art fallback chain ----
 bool artworkRender(const VolumioState &state, int x, int y, int size) {
   bool isWebradio = (state.service == "webradio");
   bool isAirplay = (state.service == "airplay_emulation");
   bool isLibrary = !isWebradio && !isAirplay;
 
-  // Webradio, not playing (stopped/paused): there's no live ICY title to
-  // look up (stale or blank), and the "no art" case here should show
-  // Volumio's own default webradio icon, not the local noArtWork.jpg -
-  // that placeholder is for "a track is playing but no art was found".
-  // Volumio's icon is normally skipped by isGenericVolumioArt() as
-  // non-authoritative during playback, but it's exactly what belongs here.
   if (isWebradio && state.status != "play") {
     if (state.albumArtUrl.length() && fetchAndDraw(state.albumArtUrl, x, y, size)) return true;
     ART_LOGLN("Art: webradio stopped, Volumio's default artwork unavailable, drawing webRadioPause placeholder");
     return artworkRenderPlaceholder(x, y, size, webRadioPause);
   }
 
-  // Library albumart (embedded tag / folder.jpg) is authoritative when
-  // present - try it before touching the network. Webradio/AirPlay always
-  // skip to the lookup below since their art is a generic icon either way.
   if (isLibrary && state.albumArtUrl.length() && !isGenericVolumioArt(state.albumArtUrl)) {
     if (fetchAndDraw(state.albumArtUrl, x, y, size)) return true;
   }
 
   String artist, title;
   if (isWebradio) {
-    // ICY metadata folds "Artist - Track" into title - state.artist can't
-    // be trusted (often a station tagline instead).
     if (!splitArtistTitle(state.title, artist, title)) {
       artist = state.artist;
       title = state.title;
@@ -643,9 +548,6 @@ bool artworkRender(const VolumioState &state, int x, int y, int size) {
   }
 
   if (artist.length() && title.length()) {
-    // AirPlay tracks are Apple's own catalog - try iTunes first there.
-    // Everything else (webradio, library - obscure/non-song releases) tries
-    // Discogs first.
     ART_LOG("Art: looking up \"%s\" - \"%s\"\n", artist.c_str(), title.c_str());
     String art;
 

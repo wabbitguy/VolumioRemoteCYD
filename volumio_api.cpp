@@ -1,12 +1,9 @@
 #include "volumio_api.h"
-#include "config.h"
-#include "settings.h"
+#include "Settings.h"
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// ---------------------------------------------------------------------
-// URL helpers
-// ---------------------------------------------------------------------
+// ---- URL helpers ----
 static String baseUrl() {
   return String("http://") + settingsGetVolumioHost();
 }
@@ -17,9 +14,7 @@ static String resolveAlbumArt(const String &raw) {
   return baseUrl() + raw;
 }
 
-// ---------------------------------------------------------------------
-// getState - polled playback state
-// ---------------------------------------------------------------------
+// ---- getState ----
 bool volumioGetState(VolumioState &out) {
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
@@ -32,8 +27,6 @@ bool volumioGetState(VolumioState &out) {
     return false;
   }
 
-  // getState payloads are small (~1-2KB); 4KB leaves headroom for long
-  // titles / library paths without overrunning the buffer.
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, http.getStream());
   http.end();
@@ -55,9 +48,7 @@ bool volumioGetState(VolumioState &out) {
   return true;
 }
 
-// ---------------------------------------------------------------------
-// Transport/volume commands
-// ---------------------------------------------------------------------
+// ---- Transport and volume ----
 bool volumioCommand(const String &cmd) {
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
@@ -73,18 +64,11 @@ bool volumioSetVolume(int vol) {
   return volumioCommand("volume&volume=" + String(vol));
 }
 
-// ---------------------------------------------------------------------
-// Web radio - Favourites lookup + station switch
-// ---------------------------------------------------------------------
+// ---- Web radio favourites ----
 int volumioGetFavouriteWebRadios(WebRadioStation out[], int maxCount) {
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
-  // NOT Volumio's generic cross-service "favourites" (the heart icon) -
-  // the webradio plugin keeps its own separate "Favorite Radios" list,
-  // reached by browsing into Web Radio first. Confirmed against a live
-  // browse?uri=radio response: that menu's "Favorite Radios" entry carries
-  // uri "radio/favourites", distinct from the top-level "favourites" uri.
-  String url = baseUrl() + "/api/v1/browse?uri=radio/favourites";
+  String url = baseUrl() + "/api/v1/browse?uri=radio/favourites";  // the webradio plugin's Favorite Radios
   if (!http.begin(url)) return 0;
 
   int code = http.GET();
@@ -93,8 +77,6 @@ int volumioGetFavouriteWebRadios(WebRadioStation out[], int maxCount) {
     return 0;
   }
 
-  // A few dozen entries with cover-art URLs each - JsonDocument (ArduinoJson
-  // v7) grows on the heap as needed, same as getState's doc above.
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, http.getStream());
   http.end();
@@ -108,13 +90,7 @@ int volumioGetFavouriteWebRadios(WebRadioStation out[], int maxCount) {
       if (count >= maxCount) return count;
 
       String uri = item["uri"] | "";
-      // A real station's uri is a playable stream URL. Anything else here
-      // would be a nested category folder rather than a station - the
-      // "type"/"service" fields aren't a reliable discriminator (Volumio's
-      // own category folders under radio/ carry service="webradio" too,
-      // see e.g. "Volumio Selection" in browse?uri=radio), but a folder's
-      // uri is always an internal path like "radio/top500", never http(s).
-      if (!uri.startsWith("http://") && !uri.startsWith("https://")) continue;
+      if (!uri.startsWith("http://") && !uri.startsWith("https://")) continue;  // folders aren't http(s) URLs
 
       String name = item["title"] | "";
       if (name.length() == 0) name = uri;
@@ -149,21 +125,8 @@ bool volumioPlayWebRadio(const WebRadioStation &station) {
   return code == HTTP_CODE_OK;
 }
 
-// ---------------------------------------------------------------------
-// USB music - drive detection, generic folder/song browsing, queued
-// playback
-// ---------------------------------------------------------------------
-
-// Percent-encodes everything except the characters that are safe to leave
-// literal in a URL - crucially INCLUDING '/', since uri here is a whole
-// hierarchical path (e.g. "music-library/USB/xxx/BONEY M/Unknown Album")
-// that Volumio expects to receive with its slashes intact, not as one
-// escaped path segment. Real folder/file names routinely contain spaces
-// and other punctuation ("BONEY M", "Unknown Album", "Go!Go!Go!"), which
-// break the raw GET below if sent unescaped - that's what was producing
-// "no songs found here" for any folder past the first one whose name had
-// a space in it.
-static String urlEncode(const String &s) {
+// ---- USB music ----
+static String urlEncode(const String &s) {  // keeps '/' so paths work
   static const char *hex = "0123456789ABCDEF";
   String out;
   out.reserve(s.length());
@@ -180,31 +143,8 @@ static String urlEncode(const String &s) {
   return out;
 }
 
-// ---------------------------------------------------------------------
-// Streaming (SAX-style) browse-response reader.
-//
-// Replaces an earlier DOM-based approach (ArduinoJson's deserializeJson()
-// into a JsonDocument) that had to hold Volumio's ENTIRE browse response in
-// memory before we could look at any of it - fine for a folder with a
-// couple dozen items, a real problem for a flat folder with hundreds or
-// thousands (that response has to be received AND fully parsed before
-// getting trimmed down to whatever we actually wanted to show).
-//
-// This reads the response as bytes arrive off the socket, keeping only the
-// three fields we care about (title/uri/type) for whichever ONE item is
-// currently being read, and - the actual point of doing this - stops
-// reading entirely the moment it has collected maxCount items. A folder
-// with 3,000 songs capped to 200 never has the other 2,800 pulled off the
-// network at all, let alone parsed or held in memory. Verified against a
-// battery of test cases (nested folders, mixed folder+song content,
-// non-string field values, unicode escapes, multi-section lists, and the
-// early-exit behavior itself) before being written here.
-// ---------------------------------------------------------------------
-
-// Blocking byte read/peek with a bounded wait - the HTTP body can arrive in
-// bursts, so this is an IDLE timeout (time since the last available byte),
-// same idea as HTTPClient's own setTimeout(), not a total-operation budget.
-static int streamReadByte(Stream &s) {
+// ---- Streaming browse reader (stops at maxCount) ----
+static int streamReadByte(Stream &s) {  // idle timeout, not total
   uint32_t start = millis();
   while (!s.available()) {
     if (millis() - start > HTTP_TIMEOUT_MS) return -1;
@@ -235,13 +175,7 @@ static bool streamExpect(Stream &s, char expected) {
   return streamReadByte(s) == expected;
 }
 
-// Parses a JSON string's contents, starting AFTER the opening quote
-// (caller already consumed it) through and including the closing quote.
-// Handles \" \\ \/ \b \f \n \r \t and \uXXXX escapes - the last one
-// re-encoded as UTF-8 (covers the full Basic Multilingual Plane, i.e. every
-// real-world song/artist title; doesn't bother with surrogate pairs for
-// astral characters, which won't come up here).
-static String streamParseStringBody(Stream &s) {
+static String streamParseStringBody(Stream &s) {  // after the opening quote; handles \uXXXX
   String out;
   int c;
   while ((c = streamReadByte(s)) != -1) {
@@ -286,18 +220,10 @@ static String streamParseStringBody(Stream &s) {
       out += (char)c;
     }
   }
-  return out;  // hit EOF before the closing quote - truncated, best effort
+  return out;  // truncated
 }
 
-// Skips one complete JSON value (string/number/true/false/null/object/
-// array) we don't care about - e.g. icon, service, albumart, nested
-// artwork objects - so position tracking stays correct without needing to
-// know what those fields look like. Bracket depth only needs to track ONE
-// bracket type (matching whichever one opened this value) because valid
-// JSON never lets '{'/'}' and '['/']' cross-match - any of the other
-// bracket type encountered inside is necessarily balanced on its own and
-// can just be ignored.
-static void streamSkipValue(Stream &s) {
+static void streamSkipValue(Stream &s) {  // skip a value we don't need
   streamSkipWhitespace(s);
   int c = streamPeekByte(s);
   if (c == '"') {
@@ -328,11 +254,7 @@ static void streamSkipValue(Stream &s) {
   }
 }
 
-// Consumes a value we WANT as a string - but checks first, and falls back
-// to streamSkipValue() if it turns out not to actually be one (null, a
-// number, ...), rather than assuming and desyncing the whole parse on a
-// field that isn't always a string in practice.
-static String streamConsumeStringValue(Stream &s) {
+static String streamConsumeStringValue(Stream &s) {  // string, or skip it if it isn't one
   streamSkipWhitespace(s);
   if (streamPeekByte(s) != '"') {
     streamSkipValue(s);
@@ -342,12 +264,7 @@ static String streamConsumeStringValue(Stream &s) {
   return streamParseStringBody(s);
 }
 
-// Call once right after an object's opening '{', then again after handling
-// each key's value. Either reads the next key (positions the stream right
-// after its ':', returns true) or consumes the closing '}' and returns
-// false - handles empty objects and the comma between entries without the
-// caller needing to track that separately.
-static bool streamObjectNext(Stream &s, bool &first, String &keyOut) {
+static bool streamObjectNext(Stream &s, bool &first, String &keyOut) {  // next key, false at '}'
   streamSkipWhitespace(s);
   int c = streamPeekByte(s);
   if (c == '}') { streamReadByte(s); return false; }
@@ -362,10 +279,7 @@ static bool streamObjectNext(Stream &s, bool &first, String &keyOut) {
   return streamExpect(s, ':');
 }
 
-// Same idea as streamObjectNext(), for arrays - true positions the stream
-// at the start of the next element (caller reads it), false means the
-// closing ']' was just consumed.
-static bool streamArrayNext(Stream &s, bool &first) {
+static bool streamArrayNext(Stream &s, bool &first) {  // next element, false at ']'
   streamSkipWhitespace(s);
   int c = streamPeekByte(s);
   if (c == ']') { streamReadByte(s); return false; }
@@ -378,13 +292,7 @@ static bool streamArrayNext(Stream &s, bool &first) {
   return streamPeekByte(s) != -1;
 }
 
-// Walks navigation.lists[*].items[*], keeping up to maxCount items and
-// stopping there - see the block comment above. requireKnownType=true
-// (USB browsing proper) keeps only "folder"/"song" typed items;
-// requireKnownType=false (the drive-presence check) keeps the very first
-// item regardless of type, since a mounted drive's own listing entry isn't
-// necessarily typed "folder".
-static int streamParseBrowseItems(Stream &s, WebRadioStation out[], int maxCount, bool requireKnownType) {
+static int streamParseBrowseItems(Stream &s, WebRadioStation out[], int maxCount, bool requireKnownType) {  // requireKnownType: folders and songs only
   streamSkipWhitespace(s);
   if (streamReadByte(s) != '{') return 0;  // top-level object
 
@@ -440,7 +348,7 @@ static int streamParseBrowseItems(Stream &s, WebRadioStation out[], int maxCount
               out[count].uri = uri;
               out[count].isFolder = isFolder;
               count++;
-              if (count >= maxCount) return count;  // the whole point - stop reading, don't just stop keeping
+              if (count >= maxCount) return count;  // stop reading, not just keeping
             }
           }
         }
@@ -451,7 +359,6 @@ static int streamParseBrowseItems(Stream &s, WebRadioStation out[], int maxCount
   return count;
 }
 
-// Wraps the GET + stream hookup around streamParseBrowseItems() above.
 static int browseUriStreaming(const String &uri, WebRadioStation out[], int maxCount, bool requireKnownType) {
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
@@ -465,16 +372,11 @@ static int browseUriStreaming(const String &uri, WebRadioStation out[], int maxC
   }
 
   int count = streamParseBrowseItems(http.getStream(), out, maxCount, requireKnownType);
-  http.end();  // safe even after an early exit mid-response - just closes the socket
+  http.end();  // fine after an early exit
   return count;
 }
 
 bool volumioGetUsbRootUri(String &uriOut) {
-  // music-library/USB lists whatever drive(s) are mounted there. Empty
-  // items = nothing plugged in - confirmed live, there's no separate flag
-  // for this. Just take the first mounted drive; multiple simultaneous USB
-  // drives aren't handled specially here. maxCount=1 - the stream stops
-  // reading right after the first item either way.
   WebRadioStation first[1];
   int n = browseUriStreaming("music-library/USB", first, 1, false);
   if (n <= 0) return false;
@@ -495,11 +397,7 @@ bool volumioPlayUsbSong(WebRadioStation songs[], int songCount, int startIndex) 
   if (!http.begin(url)) return false;
   http.addHeader("Content-Type", "application/json");
 
-  // Same replaceAndPlay shape as the REST API docs' queue-a-whole-list
-  // example: list + index + item, so the rest of the folder plays on after
-  // the tapped track - a real "tap a song in an album" experience rather
-  // than a single track that stops.
-  JsonDocument doc;
+  JsonDocument doc;  // list + index, so the folder plays on
   JsonArray list = doc["list"].to<JsonArray>();
   for (int i = 0; i < songCount; i++) {
     JsonObject it = list.add<JsonObject>();
@@ -523,29 +421,7 @@ bool volumioPlayUsbSong(WebRadioStation songs[], int songCount, int startIndex) 
   return code == HTTP_CODE_OK;
 }
 
-// Revision 2 - STILL not fully confirmed against a live Volumio, but this
-// version specifically targets a bug found by testing revision 1.
-//
-// Revision 1 sent a bare `item` (no `list`), same as this function's
-// current shape minus the `list`/`index` fields below. Testing showed the
-// recursion itself works - MPD does add a directory's contents to the
-// queue recursively, confirmed by it finding a track nested two levels
-// down (folder/subfolder/song.mp3) - but playback didn't stop at the end
-// of that folder's own songs. It rolled on into sibling folders at the
-// same level. That matches Volumio falling back to auto-building the queue
-// from the tapped uri's *browsing context* (i.e. its parent listing) when
-// there's no explicit `list` to scope it to - which is exactly what
-// volumioPlayUsbSong() above deliberately relies on for songs (its comment:
-// "the rest of the folder plays on after the tapped track"), just not what
-// we want here, where the folder itself should BE the whole queue.
-//
-// Fix attempt: wrap the folder in an explicit single-entry `list` (+
-// index 0) instead of a bare `item`, mirroring volumioPlayUsbSong()'s
-// working shape exactly. The theory is that an explicit `list` - even a
-// one-entry one - gets treated as the complete intended queue, so once
-// MPD's recursive expansion of that one folder is exhausted, playback
-// should stop there rather than reaching past it into siblings.
-bool volumioPlayUsbFolder(const WebRadioStation &folder) {
+bool volumioPlayUsbFolder(const WebRadioStation &folder) {  // one-item list so playback stops at the folder's end
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
   String url = baseUrl() + "/api/v1/replaceAndPlay";
@@ -575,27 +451,10 @@ bool volumioPlayUsbFolder(const WebRadioStation &folder) {
   return code == HTTP_CODE_OK;
 }
 
-// ---------------------------------------------------------------------
-// Playlists
-// ---------------------------------------------------------------------
-
-// listplaylists' response shape isn't documented with a concrete example
-// anywhere in Volumio's own REST API docs (checked both
-// volumio.github.io/docs and developers.volumio.com - both describe the
-// endpoint but neither shows a sample response) - confirmed live instead:
-// it's a flat JSON array of playlist name strings (e.g. ["Rock","Chill"]),
-// NOT the {navigation:{lists:[...]}} shape every browse-family endpoint
-// above uses. Simple enough to walk directly with the same low-level
-// stream primitives streamParseBrowseItems() uses (no nested
-// navigation.lists[].items[] to descend through, just one array of
-// strings) - reusing them here rather than a JsonDocument DOM parse keeps
-// this bounded the same way USB browsing is: an end user with a few
-// hundred saved playlists never has that whole response held in memory at
-// once, and reading stops the instant maxCount is reached rather than
-// parsing everything first and truncating after.
-static int streamParseNameArray(Stream &s, WebRadioStation out[], int maxCount) {
+// ---- Playlists ----
+static int streamParseNameArray(Stream &s, WebRadioStation out[], int maxCount) {  // listplaylists: flat array of names
   streamSkipWhitespace(s);
-  if (streamReadByte(s) != '[') return 0;  // not a flat array - the shape assumption above was wrong
+  if (streamReadByte(s) != '[') return 0;  // not a flat array
 
   int count = 0;
   bool first = true;
@@ -603,9 +462,9 @@ static int streamParseNameArray(Stream &s, WebRadioStation out[], int maxCount) 
     String name = streamConsumeStringValue(s);
     if (name.length() == 0) continue;
     out[count].name = name;
-    out[count].uri = "";  // unused - volumioPlayPlaylist() takes the name directly
+    out[count].uri = "";  // unused
     count++;
-    if (count >= maxCount) return count;  // stop reading entirely - the whole point, see streamParseBrowseItems()'s comment above
+    if (count >= maxCount) return count;  // stop reading
   }
   return count;
 }
@@ -623,41 +482,26 @@ int volumioGetPlaylists(WebRadioStation out[], int maxCount) {
   }
 
   int count = streamParseNameArray(http.getStream(), out, maxCount);
-  http.end();  // safe even after an early exit mid-response - just closes the socket
+  http.end();  // fine after an early exit
   return count;
 }
 
 bool volumioPlayPlaylist(const String &name) {
-  // Same /commands endpoint as play/pause/volume/etc. - playplaylist always
-  // answers HTTP 200 "success" even for a name that doesn't exist (reported
-  // against a live Volumio on their community forum), so a 200 here only
-  // confirms the request was accepted, not that playback actually started.
-  return volumioCommand("playplaylist&name=" + urlEncode(name));
+  return volumioCommand("playplaylist&name=" + urlEncode(name));  // 200 even if the name doesn't exist
 }
 
-// Lists the songs inside one playlist - Volumio's own web UI lets you
-// navigate into a playlist and start from any track, same as browsing into
-// a USB folder, so this mirrors that: "playlists" is itself a browsable
-// uri (confirmed in the top-level browse listing, same as "radio" or
-// "music-library/USB"), and "playlists/<name>" drills into one - reusing
-// the same generic streaming browse parser USB uses rather than assuming
-// playlists need their own. Playlists are expected to be flat (no folders
-// nested inside one), but requireKnownType=true handles a folder turning
-// up anyway the same safe way USB browsing does, rather than assuming.
 int volumioBrowsePlaylist(const String &name, WebRadioStation out[], int maxCount) {
   return browseUriStreaming("playlists/" + name, out, maxCount, true);
 }
 
-// ---------------------------------------------------------------------
-// Settings-page "Test" button
-// ---------------------------------------------------------------------
+// ---- Settings page Test button ----
 bool volumioTestHost(const String &host) {
   String trimmed = host;
   trimmed.trim();
   if (trimmed.length() == 0) return false;
 
   HTTPClient http;
-  http.setTimeout(3000);  // short and snappy - this is a UI click, not background polling
+  http.setTimeout(3000);  // short, it's a button click
   String url = String("http://") + trimmed + "/api/v1/getState";
   if (!http.begin(url)) return false;
 
@@ -672,9 +516,6 @@ bool volumioTestHost(const String &host) {
   http.end();
   if (err) return false;
 
-  // Any web server could answer 200 on that address - "status" is a field
-  // real Volumio getState replies always carry ("play"/"pause"/"stop"),
-  // so this is a cheap way to confirm it's actually Volumio.
-  String status = doc["status"] | "";
+  String status = doc["status"] | "";  // only real Volumio replies have status
   return status.length() > 0;
 }

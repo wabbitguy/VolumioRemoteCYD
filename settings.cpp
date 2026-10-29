@@ -1,13 +1,10 @@
-#include "settings.h"
-#include "config.h"  // VOLUMIO_HOST - default until the settings page overrides it
+#include "Settings.h"
 #include <Preferences.h>
 
 static Preferences prefs;
 
-// Cached in RAM so the hot path (artworkRender) never touches NVS - only
-// the settings page's Save action writes back to flash.
 static String gDiscogsToken;
-static bool gUseItunes = true;  // default on, matches pre-Discogs behavior
+static bool gUseItunes = true;  // default on
 static uint32_t gScreensaverTimeoutMin = 10;  // default: 10 minutes idle
 static uint8_t gScreensaverMode = 0;           // default: 0 = bounce
 static String gVolumioHost;
@@ -73,7 +70,7 @@ String settingsGetVolumioHost() {
 void settingsSetVolumioHost(const String &host) {
   String trimmed = host;
   trimmed.trim();
-  gVolumioHost = trimmed.length() ? trimmed : String(VOLUMIO_HOST);  // blank field falls back to the compiled-in default rather than breaking every request
+  gVolumioHost = trimmed.length() ? trimmed : String(VOLUMIO_HOST);  // blank = default host
 
   prefs.begin("settings", false);
   prefs.putString("vhost", gVolumioHost);

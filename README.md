@@ -1,9 +1,9 @@
 # Volumio Player - CYD 2.8"
 
 A remote display + touch transport controls for a Volumio box, running on
-a "CYD" (Cheap Yellow Display) 2.8" ESP32 board - ESP32-2432S028R. ST7789 TFT Driver was used.
+a "CYD" (Cheap Yellow Display) 2.8" ESP32 board - ESP32-2432S028R, with either the ST7789 or ILI9341 display.
 
-***A browser based setup for ST7789 is supported, check the Setup section below.***
+***A browser based setup for both ST7789 and ILI9341 is supported, check the Setup section below.***
 
 <img width="275" height="480" alt="VolumioRemote" src="https://github.com/user-attachments/assets/de219ee3-b152-4103-84b6-af598e80fac5" />
 
@@ -12,7 +12,7 @@ Arduino IDE sketch.
 ## Hardware
 
 * ESP32 CYD (Cheap Yellow Display) — 2.8" 240×320 TFT with XPT2046 touchscreen
-* The board used and tested is the ST7789-based CYD. Earlier boards used an ILI9341 driver. Included are both ILI9341 and ST7789 drivers. Copy the correct one to your TFT_eSPI folder in your Arduino libraries and rename it to User_Setup.h.
+* Tested on both the ST7789 and ILI9341 CYD boards. Setup files for both are in TFT-eSPI_Configs. Copy the one for your board to your TFT_eSPI folder in your Arduino libraries and rename it to User_Setup.h.
 
 <img width="480" height="287" alt="CYD_Back" src="https://github.com/user-attachments/assets/9724d696-0d97-4f9f-8807-8aac3eacd8e9" />
 
@@ -31,7 +31,7 @@ Arduino IDE sketch.
 * Calibration built in for touch screen (first run or via Preferences)
 * Uses Discogs free API to retrieve album artwork (sign in to Discogs to get free API; no subscription required)
 * Screen saver when idle for selected minutes (saves burn in)
-* Multi-language supported: English, French, German, Spanish, Dutch, Portuguese
+* Multi-language supported: English, French, German, Spanish, Dutch, Portuguese, Turkish
 * Captive portal for easy Wifi setup on LAN
 
 
@@ -63,7 +63,7 @@ The USB/Playlist play section mirrors the way Volumio works in a web browser. If
 
 ## Libraries
 
-* TFT_eSPI is in this repository for ST7789 driver
+* TFT_eSPI setup files for both drivers are in TFT-eSPI_Configs
 * TFT_eSPI
 * ArduinoJson
 * HTTPClient
@@ -74,7 +74,7 @@ The USB/Playlist play section mirrors the way Volumio works in a web browser. If
 
 ## Language Selection
 
-Open `Language.h` and uncomment the language you want:
+Open `Settings.h` and uncomment the language you want:
 
 ```cpp
 #define LANG_EN   // English  (default)
@@ -83,6 +83,7 @@ Open `Language.h` and uncomment the language you want:
 //#define LANG_ES   // Spanish
 //#define LANG_NL   // Dutch
 //#define LANG_PT   // Portuguese
+//#define LANG_TR   // Turkish
 ```
 
 Note the language setting does NOT translate the songs or albums that Volumio gives it. It is for the VolumioRemote user interface.
@@ -91,11 +92,11 @@ Note the language setting does NOT translate the songs or albums that Volumio gi
 ## Setup
 
 ### 🚀 Quick Install (no Arduino IDE needed)
-### Note this install is for the ST7789 driver!
+### Works with both ST7789 and ILI9341 boards
 
 [**Click here to install VolumioRemoteCYD from your browser**](https://wabbitguy.github.io/VolumioRemoteCYD-Install/)
 
-Works in Chrome, Edge, Opera, or recent Firefox on desktop. Not supported in Safari. Plug in your CYD over USB, pick your language, and click Install.
+Works in Chrome, Edge, Opera, or recent Firefox on desktop. Not supported in Safari. Plug in your CYD over USB, pick your display and language, and click Install.
 
 -----
 ### 1. Download and rename the sketch folder

@@ -99,6 +99,7 @@ Note the language setting does NOT translate the songs or albums that Volumio gi
 Works in Chrome, Edge, Opera, or recent Firefox on desktop. Not supported in Safari. Plug in your CYD over USB, pick your display and language, and click Install.
 
 -----
+### Arduino Install Steps
 ### 1. Download and rename the sketch folder
 
 Download the zip from GitHub and extract it. GitHub will produce a folder called "VolumioRemoteCYD-master" or "VolumioRemoteCYD-main". Remove the "-master" or "-main" from the folder/directory name. This must be done before the sketch is loaded into the Arduino 2.3.x IDE.
